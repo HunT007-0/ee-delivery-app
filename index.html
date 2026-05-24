@@ -315,9 +315,13 @@ window.addEventListener('load', () => {
   if (session) { currentUser = JSON.parse(session); showDeliverScreen(); }
   checkOffline();
   window.addEventListener('online', () => {
-    setTimeout(() => syncOfflineQueue(), 1500); // small delay to ensure connection is stable
+    setTimeout(() => syncOfflineQueue(), 1500);
   });
   renderPendingBadge();
+  // Try to sync on load if already online and there are pending items
+  if (navigator.onLine) {
+    setTimeout(() => syncOfflineQueue(), 2000);
+  }
 });
 
 function applyLang() {
@@ -559,7 +563,17 @@ async function syncOfflineQueue() {
   }
   localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
   isSyncing = false;
-  renderPendingBadge();
+  // Force badge update
+  const badge = document.getElementById('pending-badge');
+  if (badge) {
+    const q = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+    if (q.length === 0) {
+      badge.style.display = 'none';
+      badge.textContent = '';
+    } else {
+      renderPendingBadge();
+    }
+  }
   if (synced > 0) showSyncNotification(synced);
 }
 
@@ -578,7 +592,9 @@ function renderPendingBadge() {
     if (!badge) return;
     if (queue.length > 0) {
       badge.style.display = 'block';
-      badge.textContent = '⏳ ' + queue.length + ' ' + T[lang].pending;
+      badge.textContent = '⏳ ' + queue.length + ' livraison(s) en attente — synchronisation en cours...';
+      // Trigger sync immediately when badge is shown and online
+      if (navigator.onLine && !isSyncing) setTimeout(() => syncOfflineQueue(), 500);
     } else {
       badge.style.display = 'none';
       badge.textContent = '';
