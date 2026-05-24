@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    html, body { height: 100%; min-height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 
     :root {
       --bg: #f0f4f0; --card: #ffffff; --text: #222; --text2: #666;
@@ -27,11 +27,11 @@
     }
     body { background: var(--bg); color: var(--text); transition: background 0.3s; }
 
-    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; transition: transform 0.35s cubic-bezier(.4,0,.2,1), opacity 0.35s; background: var(--bg); overflow-y: auto; }
+    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; transition: transform 0.35s cubic-bezier(.4,0,.2,1), opacity 0.35s; background: var(--bg); overflow-y: auto; min-height: 100vh; min-height: -webkit-fill-available; }
     .screen.hidden { transform: translateX(100%); opacity: 0; pointer-events: none; }
 
     /* LOGIN */
-    #screen-login { background: #0a1628; justify-content: center; align-items: center; padding: 32px 24px; position: relative; overflow: hidden; }
+    #screen-login { background: #0a1628; justify-content: center; align-items: center; padding: 32px 24px; position: fixed; inset: 0; overflow: hidden; min-height: 100vh; min-height: -webkit-fill-available; }
 #login-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
     .login-card { background: var(--card); border-radius: 20px; padding: 32px 24px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .login-logo { text-align: center; margin-bottom: 24px; }
