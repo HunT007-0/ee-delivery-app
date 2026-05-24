@@ -306,13 +306,17 @@ let photoBase64 = null;
 let lastPayload = null;
 
 // ---- INIT ----
+let isSyncing = false;
+
 window.addEventListener('load', () => {
   applyLang();
   applyDark();
   const session = localStorage.getItem(SESSION_KEY);
   if (session) { currentUser = JSON.parse(session); showDeliverScreen(); }
   checkOffline();
-  window.addEventListener('online', syncOfflineQueue);
+  window.addEventListener('online', () => {
+    setTimeout(() => syncOfflineQueue(), 1500); // small delay to ensure connection is stable
+  });
   renderPendingBadge();
 });
 
@@ -541,21 +545,22 @@ function queueOffline(payload) {
 }
 
 async function syncOfflineQueue() {
+  if (isSyncing) return; // prevent duplicate sync
   const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
   if (!queue.length) return;
+  isSyncing = true;
   const remaining = [];
   let synced = 0;
   for (const item of queue) {
+    // Mark item as being processed to avoid re-sending
     const ok = await sendToServer(item);
     if (!ok) remaining.push(item);
     else synced++;
   }
   localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+  isSyncing = false;
   renderPendingBadge();
-  // Show success notification if anything was synced
-  if (synced > 0) {
-    showSyncNotification(synced);
-  }
+  if (synced > 0) showSyncNotification(synced);
 }
 
 function showSyncNotification(count) {
