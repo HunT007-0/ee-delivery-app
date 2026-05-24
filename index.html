@@ -544,16 +544,41 @@ async function syncOfflineQueue() {
   const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
   if (!queue.length) return;
   const remaining = [];
-  for (const item of queue) { const ok = await sendToServer(item); if(!ok) remaining.push(item); }
+  let synced = 0;
+  for (const item of queue) {
+    const ok = await sendToServer(item);
+    if (!ok) remaining.push(item);
+    else synced++;
+  }
   localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
   renderPendingBadge();
+  // Show success notification if anything was synced
+  if (synced > 0) {
+    showSyncNotification(synced);
+  }
+}
+
+function showSyncNotification(count) {
+  const notif = document.createElement('div');
+  notif.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#0a5c2e;color:white;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);transition:opacity 0.5s';
+  notif.textContent = '✅ ' + count + ' livraison(s) synchronisée(s)';
+  document.body.appendChild(notif);
+  setTimeout(() => { notif.style.opacity = '0'; setTimeout(() => notif.remove(), 500); }, 3000);
 }
 
 function renderPendingBadge() {
-  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
-  const badge = document.getElementById('pending-badge');
-  if (queue.length > 0) { badge.style.display='block'; badge.textContent='⏳ '+queue.length+' '+T[lang].pending; }
-  else badge.style.display='none';
+  try {
+    const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+    const badge = document.getElementById('pending-badge');
+    if (!badge) return;
+    if (queue.length > 0) {
+      badge.style.display = 'block';
+      badge.textContent = '⏳ ' + queue.length + ' ' + T[lang].pending;
+    } else {
+      badge.style.display = 'none';
+      badge.textContent = '';
+    }
+  } catch(e) {}
 }
 
 function showSuccess(payload, offline) {
