@@ -368,44 +368,48 @@ async function doLogin() {
   errEl.style.display = 'none';
   if (!username || !password) { errEl.style.display = 'block'; return; }
 
-  // Try server first (gets latest accounts including new ones added from dashboard)
+  function loginSuccess(user) {
+    currentUser = user;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+    // Cache for offline
+    try {
+      const cached = JSON.parse(localStorage.getItem('ee_creds') || '[]');
+      const idx = cached.findIndex(u => u.username === username);
+      if (idx >= 0) cached[idx] = { ...user, password };
+      else cached.push({ ...user, password });
+      localStorage.setItem('ee_creds', JSON.stringify(cached));
+    } catch(e) {}
+    showDeliverScreen();
+  }
+
+  // Step 1: Try hardcoded list first (always works)
+  const localUser = LIVREURS.find(u => u.username === username && u.password === password);
+  if (localUser) {
+    loginSuccess({ id: localUser.id, name: localUser.name, username: localUser.username });
+    // Also try server in background to sync any updates
+    fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password)).catch(()=>{});
+    return;
+  }
+
+  // Step 2: Try cached credentials (for accounts changed via dashboard)
+  try {
+    const cached = JSON.parse(localStorage.getItem('ee_creds') || '[]');
+    const cachedUser = cached.find(u => u.username === username && u.password === password);
+    if (cachedUser) {
+      loginSuccess({ id: cachedUser.id, name: cachedUser.name, username: cachedUser.username });
+      return;
+    }
+  } catch(e) {}
+
+  // Step 3: Try server (for brand new accounts added from dashboard)
   try {
     const res = await fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password));
     const data = await res.json();
     if (data.success) {
-      currentUser = data.user;
-      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-      // Cache the successful credentials for offline use
-      const cached = JSON.parse(localStorage.getItem('ee_livreurs_cache') || '[]');
-      const exists = cached.find(u => u.username === username);
-      if (!exists) cached.push({ id: data.user.id, name: data.user.name, username, password });
-      else { exists.password = password; exists.name = data.user.name; }
-      localStorage.setItem('ee_livreurs_cache', JSON.stringify(cached));
-      showDeliverScreen();
-      return;
-    } else {
-      errEl.style.display = 'block';
+      loginSuccess(data.user);
       return;
     }
-  } catch(e) {
-    // Server unreachable — try cached credentials (offline mode)
-    const cached = JSON.parse(localStorage.getItem('ee_livreurs_cache') || '[]');
-    const cachedUser = cached.find(u => u.username === username && u.password === password);
-    if (cachedUser) {
-      currentUser = { id: cachedUser.id, name: cachedUser.name, username: cachedUser.username };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-      showDeliverScreen();
-      return;
-    }
-    // Final fallback: hardcoded list
-    const localUser = LIVREURS.find(u => u.username === username && u.password === password);
-    if (localUser) {
-      currentUser = { id: localUser.id, name: localUser.name, username: localUser.username };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-      showDeliverScreen();
-      return;
-    }
-  }
+  } catch(e) {}
 
   errEl.style.display = 'block';
 }
