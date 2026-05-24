@@ -188,11 +188,17 @@
 const SCRIPT_URL = 'https://script.google.com/a/macros/e-equipements.ma/s/AKfycbxKlTeIVhx8mldvO7vBVfH6RiZ-cChtd5edFJwvtWNiWuJBfa3cQdvjQocF_bzP86Qq/exec';
 
 // ============================================================
-// USERS — stored in Apps Script, this is just for offline login
-// The real auth check happens server-side
-// For demo: these match what you set up in Apps Script
+// USERS — local auth (no server call needed for login)
 // ============================================================
-const USERS_CACHE_KEY = 'ee_users_cache';
+const LIVREURS = [
+  { id: 'L001', name: 'Ayoub Atif', username: 'livreur1', password: 'ayoub2026' },
+  { id: 'L002', name: 'Ettibari Anouar', username: 'livreur2', password: 'ettibari2026' },
+  { id: 'L003', name: 'Benaissa Zniber', username: 'livreur3', password: 'benaissa2026' },
+  { id: 'L004', name: 'Abdelaali Bassim', username: 'livreur4', password: 'abdelaali2026' },
+  { id: 'L005', name: 'Lahcen Ouhella', username: 'livreur5', password: 'lahcen2026' },
+  { id: 'L006', name: 'Brahim Laamiri', username: 'livreur6', password: 'brahim2026' },
+  { id: 'L007', name: 'Hicham El Hantouti', username: 'livreur7', password: 'hicham2026' },
+];
 const SESSION_KEY = 'ee_session';
 const QUEUE_KEY = 'ee_offline_queue';
 
@@ -232,23 +238,14 @@ async function doLogin() {
     return;
   }
 
-  // Try server auth
-  try {
-    const res = await fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password));
-    const data = await res.json();
-    if (data.success) {
-      currentUser = data.user;
-      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-      // Cache users for offline
-      showDeliverScreen();
-      return;
-    } else {
-      errEl.textContent = 'Identifiant ou mot de passe incorrect.';
-      errEl.style.display = 'block';
-    }
-  } catch (e) {
-    // Offline: try cached session
-    errEl.textContent = 'Connexion impossible. Vérifiez votre réseau.';
+  // Local auth — no server needed
+  const user = LIVREURS.find(u => u.username === username && u.password === password);
+  if (user) {
+    currentUser = { id: user.id, name: user.name, username: user.username };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+    showDeliverScreen();
+  } else {
+    errEl.textContent = 'Identifiant ou mot de passe incorrect.';
     errEl.style.display = 'block';
   }
 }
