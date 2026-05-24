@@ -31,7 +31,8 @@
     .screen.hidden { transform: translateX(100%); opacity: 0; pointer-events: none; }
 
     /* LOGIN */
-    #screen-login { background: var(--header-bg); justify-content: center; align-items: center; padding: 32px 24px; }
+    #screen-login { background: #0a1628; justify-content: center; align-items: center; padding: 32px 24px; position: relative; overflow: hidden; }
+#login-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
     .login-card { background: var(--card); border-radius: 20px; padding: 32px 24px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .login-logo { text-align: center; margin-bottom: 24px; }
     .logo-circle { width: 72px; height: 72px; background: var(--btn); border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; }
@@ -124,7 +125,8 @@
 <body>
 
 <div class="screen" id="screen-login">
-  <div class="login-card">
+  <canvas id="login-canvas"></canvas>
+  <div class="login-card" style="position:relative;z-index:1">
     <div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:16px">
       <button onclick="setLang('fr')" style="padding:4px 10px;border-radius:6px;border:1px solid #ddd;background:#f5f5f5;font-size:11px;cursor:pointer">FR</button>
       <button onclick="setLang('ar')" style="padding:4px 10px;border-radius:6px;border:1px solid #ddd;background:#f5f5f5;font-size:11px;cursor:pointer">ع</button>
@@ -366,26 +368,44 @@ async function doLogin() {
   errEl.style.display = 'none';
   if (!username || !password) { errEl.style.display = 'block'; return; }
 
-  // 1. Check local list first (works offline and avoids server issues)
-  const localUser = LIVREURS.find(u => u.username === username && u.password === password);
-  if (localUser) {
-    currentUser = { id: localUser.id, name: localUser.name, username: localUser.username };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-    showDeliverScreen();
-    return;
-  }
-
-  // 2. Try server (for accounts added via dashboard after deployment)
+  // Try server first (gets latest accounts including new ones added from dashboard)
   try {
     const res = await fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password));
     const data = await res.json();
     if (data.success) {
       currentUser = data.user;
       localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      // Cache the successful credentials for offline use
+      const cached = JSON.parse(localStorage.getItem('ee_livreurs_cache') || '[]');
+      const exists = cached.find(u => u.username === username);
+      if (!exists) cached.push({ id: data.user.id, name: data.user.name, username, password });
+      else { exists.password = password; exists.name = data.user.name; }
+      localStorage.setItem('ee_livreurs_cache', JSON.stringify(cached));
+      showDeliverScreen();
+      return;
+    } else {
+      errEl.style.display = 'block';
+      return;
+    }
+  } catch(e) {
+    // Server unreachable — try cached credentials (offline mode)
+    const cached = JSON.parse(localStorage.getItem('ee_livreurs_cache') || '[]');
+    const cachedUser = cached.find(u => u.username === username && u.password === password);
+    if (cachedUser) {
+      currentUser = { id: cachedUser.id, name: cachedUser.name, username: cachedUser.username };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
       showDeliverScreen();
       return;
     }
-  } catch(e) {}
+    // Final fallback: hardcoded list
+    const localUser = LIVREURS.find(u => u.username === username && u.password === password);
+    if (localUser) {
+      currentUser = { id: localUser.id, name: localUser.name, username: localUser.username };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      showDeliverScreen();
+      return;
+    }
+  }
 
   errEl.style.display = 'block';
 }
@@ -566,6 +586,82 @@ document.addEventListener('keydown', e => {
 
 // Register service worker
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+
+// ---- ANIMATED LOGIN BACKGROUND ----
+(function() {
+  const canvas = document.getElementById('login-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let W, H, particles = [], animId;
+
+  function resize() {
+    W = canvas.width = canvas.offsetWidth;
+    H = canvas.height = canvas.offsetHeight;
+  }
+
+  function Particle() {
+    this.reset = function() {
+      this.x = Math.random() * W;
+      this.y = Math.random() * H;
+      this.r = Math.random() * 3 + 1;
+      this.dx = (Math.random() - 0.5) * 0.6;
+      this.dy = (Math.random() - 0.5) * 0.6;
+      this.color = Math.random() > 0.5 ? '#0a5c2e' : '#1565c0';
+      this.alpha = Math.random() * 0.6 + 0.2;
+    };
+    this.reset();
+    this.update = function() {
+      this.x += this.dx; this.y += this.dy;
+      if (this.x < 0 || this.x > W) this.dx *= -1;
+      if (this.y < 0 || this.y > H) this.dy *= -1;
+    };
+    this.draw = function() {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.globalAlpha = this.alpha;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+  }
+
+  function init() {
+    resize();
+    particles = Array.from({ length: 60 }, () => new Particle());
+  }
+
+  function connect() {
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 100) {
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.strokeStyle = particles[i].color;
+          ctx.globalAlpha = (1 - dist/100) * 0.3;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+  }
+
+  function animate() {
+    ctx.fillStyle = darkMode ? 'rgba(10,22,40,0.15)' : 'rgba(10,22,40,0.15)';
+    ctx.fillRect(0, 0, W, H);
+    particles.forEach(p => { p.update(); p.draw(); });
+    connect();
+    animId = requestAnimationFrame(animate);
+  }
+
+  window.addEventListener('resize', resize);
+  init();
+  animate();
+})();
 </script>
 </body>
 </html>
