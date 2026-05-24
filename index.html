@@ -354,7 +354,17 @@ async function doLogin() {
   const errEl = document.getElementById('login-error');
   errEl.style.display = 'none';
   if (!username || !password) { errEl.style.display = 'block'; return; }
-  // Try server
+
+  // 1. Check local list first (works offline and avoids server issues)
+  const localUser = LIVREURS.find(u => u.username === username && u.password === password);
+  if (localUser) {
+    currentUser = { id: localUser.id, name: localUser.name, username: localUser.username };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+    showDeliverScreen();
+    return;
+  }
+
+  // 2. Try server (for accounts added via dashboard after deployment)
   try {
     const res = await fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password));
     const data = await res.json();
@@ -365,6 +375,7 @@ async function doLogin() {
       return;
     }
   } catch(e) {}
+
   errEl.style.display = 'block';
 }
 
