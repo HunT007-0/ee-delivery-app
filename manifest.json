@@ -1,0 +1,15 @@
+{
+  "name": "Espace Equipement Delivery",
+  "short_name": "EE Delivery",
+  "description": "Application de suivi des livraisons - Espace Equipement",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a5c2e",
+  "theme_color": "#0a5c2e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["productivity", "utilities"]
+}

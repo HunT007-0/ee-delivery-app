@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="EE Delivery" />
+  <meta name="theme-color" content="#0a5c2e" />
+  <title>Espace Equipement Delivery</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f4f0; }
+
+    /* SCREENS */
+    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; transition: transform 0.35s cubic-bezier(.4,0,.2,1), opacity 0.35s; background: #f0f4f0; overflow-y: auto; }
+    .screen.hidden { transform: translateX(100%); opacity: 0; pointer-events: none; }
+
+    /* LOGIN SCREEN */
+    #screen-login { background: linear-gradient(160deg, #0a5c2e 0%, #1565c0 100%); justify-content: center; align-items: center; padding: 32px 24px; }
+    .login-card { background: rgba(255,255,255,0.97); border-radius: 20px; padding: 32px 24px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .login-logo { text-align: center; margin-bottom: 28px; }
+    .logo-circle { width: 72px; height: 72px; background: linear-gradient(135deg, #0a5c2e, #1565c0); border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; }
+    .logo-circle svg { width: 36px; height: 36px; fill: white; }
+    .login-logo h1 { font-size: 18px; font-weight: 700; color: #0a5c2e; }
+    .login-logo p { font-size: 12px; color: #888; margin-top: 4px; }
+    .field-group { margin-bottom: 16px; }
+    .field-group label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; letter-spacing: 0.3px; }
+    .field-group input { width: 100%; padding: 13px 16px; border: 1.5px solid #e0e0e0; border-radius: 10px; font-size: 15px; outline: none; color: #222; background: #fafafa; transition: border-color 0.2s; }
+    .field-group input:focus { border-color: #0a5c2e; background: white; }
+    .btn-login { width: 100%; padding: 14px; background: linear-gradient(135deg, #0a5c2e, #1565c0); border: none; border-radius: 12px; color: white; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; letter-spacing: 0.3px; }
+    .btn-login:active { transform: scale(0.98); }
+    .login-note { text-align: center; font-size: 11px; color: #aaa; margin-top: 12px; }
+    .login-error { background: #fff0f0; border: 1px solid #ffcdd2; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #c62828; margin-bottom: 12px; display: none; }
+
+    /* DELIVERY SCREEN */
+    #screen-deliver { padding-bottom: 24px; }
+    .app-header { background: linear-gradient(135deg, #0a5c2e, #1565c0); padding: 48px 20px 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
+    .user-avatar { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: white; flex-shrink: 0; }
+    .user-info h3 { color: white; font-size: 14px; font-weight: 600; }
+    .user-info p { color: rgba(255,255,255,0.65); font-size: 11px; }
+    .logout-btn { margin-left: auto; background: rgba(255,255,255,0.15); border: none; border-radius: 8px; padding: 7px 10px; color: white; font-size: 12px; cursor: pointer; }
+
+    .deliver-body { padding: 16px; }
+    .offline-bar { display: none; background: #fff8e1; border: 1px solid #ffe082; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: #f57f17; display: flex; align-items: center; gap: 8px; }
+    .offline-bar svg { width: 16px; height: 16px; flex-shrink: 0; fill: #f57f17; }
+
+    .form-card { background: white; border-radius: 16px; padding: 18px; margin-bottom: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+    .form-card h4 { font-size: 11px; font-weight: 700; color: #0a5c2e; letter-spacing: 0.8px; margin-bottom: 14px; }
+    .form-field { margin-bottom: 14px; }
+    .form-field:last-child { margin-bottom: 0; }
+    .form-field label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; }
+    .form-field input { width: 100%; padding: 12px 14px; border: 1.5px solid #e8e8e8; border-radius: 10px; font-size: 15px; outline: none; color: #222; background: #fafafa; }
+    .form-field input:focus { border-color: #1565c0; background: white; }
+    .form-field input.error { border-color: #e53935; background: #fff5f5; }
+
+    /* CAMERA */
+    .camera-zone { border: 2px dashed #c8e6c9; border-radius: 14px; background: #f8fdf9; overflow: hidden; }
+    .camera-placeholder { padding: 32px 20px; text-align: center; cursor: pointer; }
+    .camera-placeholder svg { width: 48px; height: 48px; fill: #0a5c2e; display: block; margin: 0 auto 12px; opacity: 0.7; }
+    .camera-placeholder p { font-size: 13px; color: #0a5c2e; font-weight: 600; }
+    .camera-placeholder span { font-size: 11px; color: #888; margin-top: 4px; display: block; }
+    .camera-preview { display: none; position: relative; }
+    .camera-preview img { width: 100%; height: 220px; object-fit: cover; border-radius: 12px; display: block; }
+    .camera-preview .retake-btn { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; }
+    #camera-input { display: none; }
+    .photo-taken .camera-placeholder { display: none; }
+    .photo-taken .camera-preview { display: block; }
+
+    .btn-submit { width: 100%; padding: 16px; background: linear-gradient(135deg, #0a5c2e, #1565c0); border: none; border-radius: 14px; color: white; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 20px rgba(10,92,46,0.35); letter-spacing: 0.3px; }
+    .btn-submit:active { transform: scale(0.98); }
+    .btn-submit.loading { opacity: 0.7; pointer-events: none; }
+    .btn-submit svg { width: 20px; height: 20px; fill: white; }
+
+    /* SUCCESS SCREEN */
+    #screen-success { justify-content: center; align-items: center; padding: 40px 24px; text-align: center; }
+    .success-circle { width: 100px; height: 100px; background: linear-gradient(135deg, #e8f5e9, #e3f2fd); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; }
+    .success-circle svg { width: 52px; height: 52px; fill: #0a5c2e; }
+    #screen-success h2 { font-size: 24px; font-weight: 700; color: #0a5c2e; margin-bottom: 10px; }
+    #screen-success p { font-size: 14px; color: #666; line-height: 1.6; margin-bottom: 32px; }
+    .success-detail { background: white; border-radius: 14px; padding: 16px 20px; margin-bottom: 24px; width: 100%; max-width: 320px; text-align: left; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+    .success-detail .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
+    .success-detail .row:last-child { border-bottom: none; }
+    .success-detail .row .k { color: #888; }
+    .success-detail .row .v { font-weight: 600; color: #222; }
+    .btn-new { padding: 14px 32px; background: linear-gradient(135deg, #0a5c2e, #1565c0); border: none; border-radius: 12px; color: white; font-size: 15px; font-weight: 600; cursor: pointer; }
+
+    /* PENDING BADGE */
+    .pending-badge { display: none; background: #e3f2fd; border: 1px solid #90caf9; border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #1565c0; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="screen" id="screen-login">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-circle">
+        <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+      </div>
+      <h1>Espace Equipement</h1>
+      <p>Application de livraison</p>
+    </div>
+    <div class="login-error" id="login-error">Identifiant ou mot de passe incorrect.</div>
+    <div class="field-group">
+      <label>IDENTIFIANT</label>
+      <input type="text" id="inp-username" placeholder="Votre identifiant" autocomplete="username" autocapitalize="none" />
+    </div>
+    <div class="field-group">
+      <label>MOT DE PASSE</label>
+      <input type="password" id="inp-password" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button class="btn-login" onclick="doLogin()">Se connecter</button>
+    <p class="login-note">Connexion mémorisée automatiquement</p>
+  </div>
+</div>
+
+<!-- DELIVERY FORM -->
+<div class="screen hidden" id="screen-deliver">
+  <div class="app-header">
+    <div class="user-avatar" id="user-avatar">KB</div>
+    <div class="user-info">
+      <h3 id="user-name">Karim Benali</h3>
+      <p>Livreur · Espace Equipement</p>
+    </div>
+    <button class="logout-btn" onclick="doLogout()">Déconnexion</button>
+  </div>
+  <div class="deliver-body">
+    <div class="offline-bar" id="offline-bar">
+      <svg viewBox="0 0 24 24"><path d="M24 8.98C21.16 6.09 17.28 4.35 13 4.35c-1.31 0-2.57.17-3.78.47L11.43 7c.52-.09 1.05-.15 1.57-.15 3.49 0 6.64 1.42 8.93 3.7L24 8.98zM13 11.35l6 6V12.5C17.33 10.91 15.28 10 13 10c-.08 0-.16.01-.24.01l.24.34v1zM1.12 2.16L3 4.04C1.15 5.56 0 7.81 0 10.35c0 2.76 1.12 5.26 2.93 7.07L5 15.35c-1.34-1.34-2-3.08-2-5.02 0-1.78.66-3.4 1.74-4.64L6.93 7.88C5.55 8.6 4.38 9.72 3.58 11.1L1.12 2.16zM13 18.35c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      Hors ligne — sera envoyé automatiquement à la reconnexion
+    </div>
+    <div class="pending-badge" id="pending-badge"></div>
+
+    <div class="form-card">
+      <h4>INFORMATIONS DU DOCUMENT</h4>
+      <div class="form-field">
+        <label>Numéro de document (BL / ODL / DT)</label>
+        <input type="text" id="doc-num" placeholder="Ex: BL-2024-00892" autocapitalize="characters" />
+      </div>
+      <div class="form-field">
+        <label>Code client</label>
+        <input type="text" id="code-client" placeholder="Ex: CLI-0042" autocapitalize="characters" />
+      </div>
+    </div>
+
+    <div class="form-card">
+      <h4>PHOTO DU DOCUMENT SIGNÉ</h4>
+      <div class="camera-zone" id="camera-zone">
+        <div class="camera-placeholder" onclick="triggerCamera()">
+          <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+          <p>Photographier le document</p>
+          <span>Appuyez pour ouvrir la caméra</span>
+        </div>
+        <div class="camera-preview" id="camera-preview">
+          <img id="photo-preview-img" src="" alt="Photo du document" />
+          <button class="retake-btn" onclick="retakePhoto()">↺ Reprendre</button>
+        </div>
+      </div>
+      <input type="file" id="camera-input" accept="image/*" capture="environment" onchange="handlePhoto(this)" />
+    </div>
+
+    <button class="btn-submit" id="btn-submit" onclick="doSubmit()">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      Soumettre la livraison
+    </button>
+  </div>
+</div>
+
+<!-- SUCCESS -->
+<div class="screen hidden" id="screen-success">
+  <div class="success-circle">
+    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+  </div>
+  <h2>Livraison envoyée !</h2>
+  <p id="success-msg">Document enregistré avec succès.</p>
+  <div class="success-detail" id="success-detail"></div>
+  <button class="btn-new" onclick="doNew()">+ Nouvelle livraison</button>
+</div>
+
+<script>
+// ============================================================
+// CONFIG — replace with your actual Apps Script Web App URL
+// ============================================================
+const SCRIPT_URL = 'https://script.google.com/a/macros/e-equipements.ma/s/AKfycbxKlTeIVhx8mldvO7vBVfH6RiZ-cChtd5edFJwvtWNiWuJBfa3cQdvjQocF_bzP86Qq/exec';
+
+// ============================================================
+// USERS — stored in Apps Script, this is just for offline login
+// The real auth check happens server-side
+// For demo: these match what you set up in Apps Script
+// ============================================================
+const USERS_CACHE_KEY = 'ee_users_cache';
+const SESSION_KEY = 'ee_session';
+const QUEUE_KEY = 'ee_offline_queue';
+
+let currentUser = null;
+let photoBase64 = null;
+let photoBlob = null;
+
+// ---- INIT ----
+window.addEventListener('load', () => {
+  const session = localStorage.getItem(SESSION_KEY);
+  if (session) {
+    currentUser = JSON.parse(session);
+    showDeliverScreen();
+  }
+  checkOffline();
+  window.addEventListener('online', syncOfflineQueue);
+  renderPendingBadge();
+});
+
+function checkOffline() {
+  const bar = document.getElementById('offline-bar');
+  if (!navigator.onLine) bar.style.display = 'flex';
+  window.addEventListener('offline', () => bar.style.display = 'flex');
+  window.addEventListener('online', () => bar.style.display = 'none');
+}
+
+// ---- LOGIN ----
+async function doLogin() {
+  const username = document.getElementById('inp-username').value.trim();
+  const password = document.getElementById('inp-password').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+
+  if (!username || !password) {
+    errEl.textContent = 'Veuillez remplir tous les champs.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Try server auth
+  try {
+    const res = await fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password));
+    const data = await res.json();
+    if (data.success) {
+      currentUser = data.user;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      // Cache users for offline
+      showDeliverScreen();
+      return;
+    } else {
+      errEl.textContent = 'Identifiant ou mot de passe incorrect.';
+      errEl.style.display = 'block';
+    }
+  } catch (e) {
+    // Offline: try cached session
+    errEl.textContent = 'Connexion impossible. Vérifiez votre réseau.';
+    errEl.style.display = 'block';
+  }
+}
+
+function doLogout() {
+  localStorage.removeItem(SESSION_KEY);
+  currentUser = null;
+  photoBase64 = null;
+  photoBlob = null;
+  document.getElementById('screen-deliver').classList.add('hidden');
+  document.getElementById('screen-login').classList.remove('hidden');
+}
+
+function showDeliverScreen() {
+  document.getElementById('screen-login').classList.add('hidden');
+  document.getElementById('screen-deliver').classList.remove('hidden');
+  const initials = currentUser.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+  document.getElementById('user-avatar').textContent = initials;
+  document.getElementById('user-name').textContent = currentUser.name;
+}
+
+// ---- CAMERA ----
+function triggerCamera() {
+  document.getElementById('camera-input').click();
+}
+
+function handlePhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  // Compress before preview
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = h * MAX / w; w = MAX; }
+      if (h > MAX) { w = w * MAX / h; h = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      photoBase64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+      document.getElementById('photo-preview-img').src = canvas.toDataURL('image/jpeg', 0.82);
+      document.getElementById('camera-zone').classList.add('photo-taken');
+      document.getElementById('camera-preview').style.display = 'block';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function retakePhoto() {
+  photoBase64 = null;
+  document.getElementById('camera-zone').classList.remove('photo-taken');
+  document.getElementById('camera-preview').style.display = 'none';
+  document.getElementById('camera-input').value = '';
+  triggerCamera();
+}
+
+// ---- GEOLOCATION ----
+function getLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 8000, enableHighAccuracy: true }
+    );
+  });
+}
+
+// ---- SUBMIT ----
+async function doSubmit() {
+  const docNum = document.getElementById('doc-num').value.trim();
+  const codeClient = document.getElementById('code-client').value.trim();
+
+  // Validate
+  const docInput = document.getElementById('doc-num');
+  docInput.classList.remove('error');
+  if (!docNum) { docInput.classList.add('error'); docInput.focus(); return; }
+  if (!photoBase64) { alert('Veuillez photographier le document avant de soumettre.'); return; }
+
+  const btn = document.getElementById('btn-submit');
+  btn.classList.add('loading');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" style="animation:spin 1s linear infinite"><path d="M12 4V2A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8z"/></svg> Envoi en cours...';
+
+  const location = await getLocation();
+  const now = new Date();
+  const dateStr = String(now.getDate()).padStart(2,'0') + '/' + String(now.getMonth()+1).padStart(2,'0') + '/' + now.getFullYear();
+  const timeStr = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  const mapsLink = location ? `https://maps.google.com/?q=${location.lat},${location.lng}` : '';
+
+  const payload = {
+    action: 'submit',
+    livreur: currentUser.name,
+    livreurId: currentUser.id,
+    docNum,
+    codeClient,
+    date: dateStr,
+    time: timeStr,
+    datetime: dateStr + ' ' + timeStr,
+    lat: location ? location.lat : '',
+    lng: location ? location.lng : '',
+    mapsLink,
+    photo: photoBase64
+  };
+
+  if (navigator.onLine) {
+    const ok = await sendToServer(payload);
+    if (ok) {
+      showSuccess(payload, false);
+    } else {
+      queueOffline(payload);
+      showSuccess(payload, true);
+    }
+  } else {
+    queueOffline(payload);
+    showSuccess(payload, true);
+  }
+
+  btn.classList.remove('loading');
+  btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> Soumettre la livraison';
+}
+
+async function sendToServer(payload) {
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    return data.success;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ---- OFFLINE QUEUE ----
+function queueOffline(payload) {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  queue.push({ ...payload, queuedAt: Date.now() });
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  renderPendingBadge();
+}
+
+async function syncOfflineQueue() {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  if (!queue.length) return;
+  const remaining = [];
+  for (const item of queue) {
+    const ok = await sendToServer(item);
+    if (!ok) remaining.push(item);
+  }
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+  renderPendingBadge();
+}
+
+function renderPendingBadge() {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  const badge = document.getElementById('pending-badge');
+  if (queue.length > 0) {
+    badge.style.display = 'block';
+    badge.textContent = `⏳ ${queue.length} livraison(s) en attente de synchronisation`;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ---- SUCCESS ----
+function showSuccess(payload, offline) {
+  document.getElementById('screen-deliver').classList.add('hidden');
+  document.getElementById('screen-success').classList.remove('hidden');
+  document.getElementById('success-msg').textContent = offline
+    ? '⏳ Sauvegardé hors ligne — sera synchronisé automatiquement.'
+    : '✅ Synchronisé avec Google Sheets.';
+  document.getElementById('success-detail').innerHTML = `
+    <div class="row"><span class="k">Document</span><span class="v">${payload.docNum}</span></div>
+    <div class="row"><span class="k">Code client</span><span class="v">${payload.codeClient || '—'}</span></div>
+    <div class="row"><span class="k">Date / Heure</span><span class="v">${payload.datetime}</span></div>
+    <div class="row"><span class="k">Livreur</span><span class="v">${payload.livreur}</span></div>
+    <div class="row"><span class="k">GPS</span><span class="v">${payload.mapsLink ? 'Enregistré ✓' : 'Non disponible'}</span></div>
+  `;
+}
+
+function doNew() {
+  photoBase64 = null;
+  document.getElementById('doc-num').value = '';
+  document.getElementById('code-client').value = '';
+  document.getElementById('camera-zone').classList.remove('photo-taken');
+  document.getElementById('camera-preview').style.display = 'none';
+  document.getElementById('camera-input').value = '';
+  document.getElementById('screen-success').classList.add('hidden');
+  document.getElementById('screen-deliver').classList.remove('hidden');
+  renderPendingBadge();
+}
+
+// CSS spin animation
+const style = document.createElement('style');
+style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(style);
+
+// Enter key login
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('screen-login').classList.contains('hidden')) doLogin();
+});
+</script>
+</body>
+</html>
