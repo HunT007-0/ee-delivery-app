@@ -381,7 +381,6 @@ async function doLogin() {
   function loginSuccess(user) {
     currentUser = user;
     localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-    // Cache for offline
     try {
       const cached = JSON.parse(localStorage.getItem('ee_creds') || '[]');
       const idx = cached.findIndex(u => u.username === username);
@@ -392,31 +391,34 @@ async function doLogin() {
     showDeliverScreen();
   }
 
-  // Step 1: Try hardcoded list first (always works)
-  const localUser = LIVREURS.find(u => u.username === username && u.password === password);
-  if (localUser) {
-    loginSuccess({ id: localUser.id, name: localUser.name, username: localUser.username });
-    // Also try server in background to sync any updates
-    fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password)).catch(()=>{});
-    return;
-  }
-
-  // Step 2: Try cached credentials (for accounts changed via dashboard)
-  try {
-    const cached = JSON.parse(localStorage.getItem('ee_creds') || '[]');
-    const cachedUser = cached.find(u => u.username === username && u.password === password);
-    if (cachedUser) {
-      loginSuccess({ id: cachedUser.id, name: cachedUser.name, username: cachedUser.username });
-      return;
-    }
-  } catch(e) {}
-
-  // Step 3: Try server (for brand new accounts added from dashboard)
+  // Step 1: Try server first — always gets latest accounts including new ones
   try {
     const res = await fetch(SCRIPT_URL + '?action=login&username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password));
     const data = await res.json();
     if (data.success) {
       loginSuccess(data.user);
+      return;
+    }
+    // Server responded but login failed — wrong credentials
+    errEl.style.display = 'block';
+    return;
+  } catch(e) {
+    // Server unreachable — fall through to offline options
+  }
+
+  // Step 2: Server unreachable — try hardcoded list
+  const localUser = LIVREURS.find(u => u.username === username && u.password === password);
+  if (localUser) {
+    loginSuccess({ id: localUser.id, name: localUser.name, username: localUser.username });
+    return;
+  }
+
+  // Step 3: Try cached credentials (previously logged in users)
+  try {
+    const cached = JSON.parse(localStorage.getItem('ee_creds') || '[]');
+    const cachedUser = cached.find(u => u.username === username && u.password === password);
+    if (cachedUser) {
+      loginSuccess({ id: cachedUser.id, name: cachedUser.name, username: cachedUser.username });
       return;
     }
   } catch(e) {}
