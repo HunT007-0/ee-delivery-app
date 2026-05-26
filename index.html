@@ -179,7 +179,7 @@
       <h4 id="form-title">INFORMATIONS DU DOCUMENT</h4>
       <div class="form-field">
         <label id="lbl-docnum">Numéro de document</label>
-        <input type="text" id="doc-num" autocapitalize="characters" />
+        <input type="text" id="doc-num" autocapitalize="characters" oninput="validateDocNum(this)" onblur="validateDocNum(this)" />
       </div>
       <div class="form-field">
         <label id="lbl-codeclient">Code client</label>
@@ -475,6 +475,53 @@ function retakePhoto() {
   triggerCamera();
 }
 
+// ---- DOCUMENT NUMBER VALIDATION ----
+const AUTO_CORRECT = ['BL','BDT'];
+const ODLP_TYPOS = ['ODLB','OLDP','ODPL','OLPD','DPLO','OPDL'];
+
+function validateDocNum(input) {
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
+  for (const prefix of AUTO_CORRECT) {
+    const regex = new RegExp('^' + prefix + '([0-9].*)$');
+    const match = raw.match(regex);
+    if (match) {
+      const corrected = prefix + '-' + match[1];
+      input.value = corrected;
+      flagForAdmin(raw, corrected, 'autocorrect');
+      return;
+    }
+  }
+  const firstPart = raw.split('-')[0].replace(/[0-9]/g, '');
+  if (firstPart.length >= 3 && ODLP_TYPOS.includes(firstPart)) {
+    flagForAdmin(raw, firstPart, 'odlp_typo');
+  }
+}
+
+function flagForAdmin(original, corrected, type) {
+  try {
+    const flags = JSON.parse(localStorage.getItem('ee_flags') || '[]');
+    if (!flags.find(f => f.original === original && f.type === type)) {
+      flags.push({ original, corrected, type,
+        livreur: currentUser ? currentUser.name : '?',
+        livreurId: currentUser ? currentUser.id : '?',
+        datetime: new Date().toLocaleString('fr-FR'), sent: false });
+      localStorage.setItem('ee_flags', JSON.stringify(flags));
+    }
+  } catch(e) {}
+}
+
+async function sendPendingFlags() {
+  try {
+    const flags = JSON.parse(localStorage.getItem('ee_flags') || '[]');
+    const unsent = flags.filter(f => !f.sent);
+    if (!unsent.length) return;
+    await fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'flagDocNum', flags: unsent }) });
+    flags.forEach(f => f.sent = true);
+    localStorage.setItem('ee_flags', JSON.stringify(flags));
+  } catch(e) {}
+}
+
 // ---- CLIENT LOCATION ----
 async function lookupClient() {
   const code = document.getElementById('code-client').value.trim();
@@ -517,6 +564,8 @@ async function doSubmit() {
   const docInput = document.getElementById('doc-num');
   docInput.classList.remove('error');
   if (!docNum) { docInput.classList.add('error'); docInput.focus(); return; }
+  // Send any pending flags
+  sendPendingFlags();
   if (!photoBase64) { alert(T[lang].cameraSub); return; }
   const btn = document.getElementById('btn-submit');
   btn.classList.add('loading');
@@ -625,6 +674,8 @@ function doNew() {
   photoBase64 = null;
   document.getElementById('doc-num').value = '';
   document.getElementById('code-client').value = '';
+  const fb = document.getElementById('doc-num-feedback');
+  if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
   document.getElementById('client-location').style.display = 'none';
   document.getElementById('camera-zone').classList.remove('photo-taken');
   document.getElementById('camera-preview').style.display = 'none';
