@@ -184,7 +184,7 @@
       <div class="form-field">
         <label id="lbl-codeclient">Code client</label>
         <div class="input-row">
-          <input type="text" id="code-client" autocapitalize="characters" />
+          <input type="text" id="code-client" autocapitalize="characters" oninput="validateCodeClient(this)" onblur="validateCodeClient(this)" />
           <button class="locate-btn" onclick="lookupClient()" id="btn-locate">📍</button>
         </div>
         <div class="client-loc" id="client-location"></div>
@@ -482,24 +482,15 @@ const AUTO_CORRECT = ['BL','BDT','ODLP']; // auto-add dash if missing
 function validateDocNum(input) {
   const raw = input.value.trim().toUpperCase();
   if (!raw) return;
-
-  // Auto-correct missing dash for BL, BDT, ODLP
   for (const prefix of AUTO_CORRECT) {
     const regex = new RegExp('^' + prefix + '([0-9].*)$');
     const match = raw.match(regex);
     if (match) {
       const corrected = prefix + '-' + match[1];
       input.value = corrected;
-      flagForAdmin(raw, corrected, 'autocorrect');
+      flagForAdmin(raw, corrected, 'missing_dash');
       return;
     }
-  }
-
-  // Detect any ODL* variant that is NOT ODLP — flag admin silently
-  // Matches: ODL followed by any letter(s) that is not P, with or without dash/numbers
-  const odlWrongRegex = /^ODL([^P]|P[^-0-9])/;
-  if (odlWrongRegex.test(raw)) {
-    flagForAdmin(raw, 'ODLP', 'odlp_typo');
   }
 }
 
@@ -528,6 +519,18 @@ async function sendPendingFlags() {
     flags.forEach(f => f.sent = true);
     localStorage.setItem('ee_flags', JSON.stringify(flags));
   } catch(e) {}
+}
+
+function validateCodeClient(input) {
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
+  if (raw.startsWith('C') && raw.length > 1) {
+    const corrected = 'C' + raw.substring(1).replace(/O/g, '0');
+    if (corrected !== raw) {
+      input.value = corrected;
+      flagForAdmin(raw, corrected, 'o_zero');
+    }
+  }
 }
 
 // ---- CLIENT LOCATION ----
