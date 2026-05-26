@@ -476,12 +476,14 @@ function retakePhoto() {
 }
 
 // ---- DOCUMENT NUMBER VALIDATION ----
-const AUTO_CORRECT = ['BL','BDT'];
-const ODLP_TYPOS = ['ODLB','OLDP','ODPL','OLPD','DPLO','OPDL'];
+const AUTO_CORRECT = ['BL','BDT','ODLP']; // auto-add dash if missing
+// ODLP typo detection handled by regex — any ODL* that is NOT ODLP
 
 function validateDocNum(input) {
   const raw = input.value.trim().toUpperCase();
   if (!raw) return;
+
+  // Auto-correct missing dash for BL, BDT, ODLP
   for (const prefix of AUTO_CORRECT) {
     const regex = new RegExp('^' + prefix + '([0-9].*)$');
     const match = raw.match(regex);
@@ -492,9 +494,12 @@ function validateDocNum(input) {
       return;
     }
   }
-  const firstPart = raw.split('-')[0].replace(/[0-9]/g, '');
-  if (firstPart.length >= 3 && ODLP_TYPOS.includes(firstPart)) {
-    flagForAdmin(raw, firstPart, 'odlp_typo');
+
+  // Detect any ODL* variant that is NOT ODLP — flag admin silently
+  // Matches: ODL followed by any letter(s) that is not P, with or without dash/numbers
+  const odlWrongRegex = /^ODL([^P]|P[^-0-9])/;
+  if (odlWrongRegex.test(raw)) {
+    flagForAdmin(raw, 'ODLP', 'odlp_typo');
   }
 }
 
@@ -502,11 +507,14 @@ function flagForAdmin(original, corrected, type) {
   try {
     const flags = JSON.parse(localStorage.getItem('ee_flags') || '[]');
     if (!flags.find(f => f.original === original && f.type === type)) {
-      flags.push({ original, corrected, type,
+      const flag = { original, corrected, type,
         livreur: currentUser ? currentUser.name : '?',
         livreurId: currentUser ? currentUser.id : '?',
-        datetime: new Date().toLocaleString('fr-FR'), sent: false });
+        datetime: new Date().toLocaleString('fr-FR'), sent: false };
+      flags.push(flag);
       localStorage.setItem('ee_flags', JSON.stringify(flags));
+      // Send immediately if online
+      if (navigator.onLine) sendPendingFlags();
     }
   } catch(e) {}
 }
