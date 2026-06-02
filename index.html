@@ -476,19 +476,21 @@ function retakePhoto() {
 }
 
 // ---- DOCUMENT NUMBER VALIDATION ----
-const AUTO_CORRECT = ['BL','BDT','ODLP']; // auto-add dash if missing
-// ODLP typo detection handled by regex — any ODL* that is NOT ODLP
+const AUTO_CORRECT = ['ODLP','ODL','BDT','BL']; // order matters - longer prefixes first
 
 function validateDocNum(input) {
   const raw = input.value.trim().toUpperCase();
   if (!raw) return;
   for (const prefix of AUTO_CORRECT) {
-    const regex = new RegExp('^' + prefix + '([0-9].*)$');
+    // Match prefix followed by any non-alphanumeric separator (space, dot, comma, semicolon, etc.) or no separator before digits
+    const regex = new RegExp('^' + prefix + '[^A-Z0-9]*([0-9].*)$');
     const match = raw.match(regex);
     if (match) {
       const corrected = prefix + '-' + match[1];
-      input.value = corrected;
-      flagForAdmin(raw, corrected, 'missing_dash');
+      if (corrected !== raw) {
+        input.value = corrected;
+        flagForAdmin(raw, corrected, 'missing_dash');
+      }
       return;
     }
   }
