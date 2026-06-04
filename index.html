@@ -591,7 +591,8 @@ async function doSubmit() {
   const dateStr = String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
   const timeStr = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const mapsLink = location ? 'https://maps.google.com/?q='+location.lat+','+location.lng : '';
-  lastPayload = { action:'submit', livreur:currentUser.name, livreurId:currentUser.id, docNum, codeClient, date:dateStr, time:timeStr, datetime:dateStr+' '+timeStr, lat:location?location.lat:'', lng:location?location.lng:'', mapsLink, photo:photoBase64 };
+  const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+  lastPayload = { action:'submit', submissionId, livreur:currentUser.name, livreurId:currentUser.id, docNum, codeClient, date:dateStr, time:timeStr, datetime:dateStr+' '+timeStr, lat:location?location.lat:'', lng:location?location.lng:'', mapsLink, photo:photoBase64 };
   let offline = false;
   if (navigator.onLine) {
     const ok = await sendToServer(lastPayload);
@@ -618,19 +619,22 @@ function queueOffline(payload) {
 }
 
 async function syncOfflineQueue() {
-  if (isSyncing) return; // prevent duplicate sync
+  if (isSyncing) return;
   const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
   if (!queue.length) return;
   isSyncing = true;
+  // Clear queue immediately to prevent re-processing
+  localStorage.setItem(QUEUE_KEY, JSON.stringify([]));
   const remaining = [];
   let synced = 0;
   for (const item of queue) {
-    // Mark item as being processed to avoid re-sending
     const ok = await sendToServer(item);
     if (!ok) remaining.push(item);
     else synced++;
   }
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+  // Only put back the ones that truly failed
+  const currentQueue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+  localStorage.setItem(QUEUE_KEY, JSON.stringify([...currentQueue, ...remaining]));
   isSyncing = false;
   // Force badge update
   const badge = document.getElementById('pending-badge');
