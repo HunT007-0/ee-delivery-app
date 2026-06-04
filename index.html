@@ -526,6 +526,8 @@ async function sendPendingFlags() {
 function validateCodeClient(input) {
   const raw = input.value.trim().toUpperCase();
   if (!raw) return;
+  // Only apply O→0 correction for C-format codes (e.g. C07654)
+  // Don't touch phone numbers (starting with 0, 06, 07, 05)
   if (raw.startsWith('C') && raw.length > 1) {
     const corrected = 'C' + raw.substring(1).replace(/O/g, '0');
     if (corrected !== raw) {
@@ -533,6 +535,7 @@ function validateCodeClient(input) {
       flagForAdmin(raw, corrected, 'o_zero');
     }
   }
+  // For phone numbers — preserve as-is, no correction needed
 }
 
 // ---- CLIENT LOCATION ----
