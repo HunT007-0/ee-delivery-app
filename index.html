@@ -566,9 +566,22 @@ async function lookupClient() {
 function getLocation() {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return; }
+    // Show GPS indicator
+    const btn = document.getElementById('btn-submit');
+    const btnTxt = document.getElementById('btn-submit-text');
+    if (btnTxt) btnTxt.textContent = '📍 ' + (T[lang]?.locating || 'Localisation...');
+    // Try high accuracy first with 15s timeout
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null), { timeout: 8000, enableHighAccuracy: true }
+      () => {
+        // Fall back to low accuracy with 10s timeout
+        navigator.geolocation.getCurrentPosition(
+          pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => resolve(null),
+          { timeout: 10000, enableHighAccuracy: false, maximumAge: 60000 }
+        );
+      },
+      { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 }
     );
   });
 }
