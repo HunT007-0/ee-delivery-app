@@ -436,6 +436,11 @@ function doLogout() {
 function showDeliverScreen() {
   document.getElementById('screen-login').classList.add('hidden');
   document.getElementById('screen-deliver').classList.remove('hidden');
+  // Pre-warm GPS so it's ready when livreur submits
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(() => {}, () => {}, 
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
+  }
   const initials = currentUser.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-name').textContent = currentUser.name;
@@ -566,22 +571,20 @@ async function lookupClient() {
 function getLocation() {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return; }
-    // Show GPS indicator
-    const btn = document.getElementById('btn-submit');
-    const btnTxt = document.getElementById('btn-submit-text');
-    if (btnTxt) btnTxt.textContent = '📍 ' + (T[lang]?.locating || 'Localisation...');
-    // Try high accuracy first with 15s timeout
+    // Try to get location fast:
+    // - Accept cached location up to 30 seconds old (livreur is still nearby)
+    // - Timeout after 3 seconds max
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {
-        // Fall back to low accuracy with 10s timeout
+        // If fast attempt fails, try one more time with low accuracy
         navigator.geolocation.getCurrentPosition(
           pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
           () => resolve(null),
-          { timeout: 10000, enableHighAccuracy: false, maximumAge: 60000 }
+          { timeout: 3000, enableHighAccuracy: false, maximumAge: 60000 }
         );
       },
-      { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 }
+      { timeout: 3000, enableHighAccuracy: true, maximumAge: 30000 }
     );
   });
 }
@@ -599,18 +602,42 @@ async function doSubmit() {
   const btn = document.getElementById('btn-submit');
   btn.classList.add('loading');
   document.getElementById('btn-submit-text').textContent = T[lang].submitting;
-  const location = await getLocation();
   const now = new Date();
   const dateStr = String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
   const timeStr = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-  const mapsLink = location ? 'https://maps.google.com/?q='+location.lat+','+location.lng : '';
   const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
-  lastPayload = { action:'submit', submissionId, livreur:currentUser.name, livreurId:currentUser.id, docNum, codeClient, date:dateStr, time:timeStr, datetime:dateStr+' '+timeStr, lat:location?location.lat:'', lng:location?location.lng:'', mapsLink, photo:photoBase64 };
-  let offline = false;
-  if (navigator.onLine) {
-    const ok = await sendToServer(lastPayload);
-    if (!ok) { queueOffline(lastPayload); offline = true; }
-  } else { queueOffline(lastPayload); offline = true; }
+  // Start GPS in background — don't wait for it
+  const locationPromise = getLocation();
+  // Build payload immediately without GPS
+  lastPayload = { action:'submit', submissionId, livreur:currentUser.name, livreurId:currentUser.id, docNum, codeClient, date:dateStr, time:timeStr, datetime:dateStr+' '+timeStr, lat:'', lng:'', mapsLink:'', photo:photoBase64 };
+  // Always queue first for instant confirmation
+  queueOffline(lastPayload);
+  // Show success immediately
+  const offline = false;
+  
+  // Get GPS in background, update payload when ready, then sync
+  locationPromise.then(location => {
+    if (location) {
+      const mapsLink = 'https://maps.google.com/?q='+location.lat+','+location.lng;
+      // Update queued item with GPS
+      const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+      const item = queue.find(q => q.submissionId === submissionId);
+      if (item) {
+        item.lat = location.lat;
+        item.lng = location.lng;
+        item.mapsLink = mapsLink;
+        localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+      }
+      lastPayload.lat = location.lat;
+      lastPayload.lng = location.lng;
+      lastPayload.mapsLink = mapsLink;
+    }
+    // Sync after GPS resolves (with or without location)
+    if (navigator.onLine) syncOfflineQueue().catch(() => {});
+  }).catch(() => {
+    // GPS failed - sync anyway without location
+    if (navigator.onLine) syncOfflineQueue().catch(() => {});
+  });
   showSuccess(lastPayload, offline);
   btn.classList.remove('loading');
   document.getElementById('btn-submit-text').textContent = T[lang].submit;
