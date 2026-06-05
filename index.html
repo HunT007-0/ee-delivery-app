@@ -615,7 +615,8 @@ async function doSubmit() {
   // Show success immediately
   const offline = false;
   
-  // Get GPS in background, update payload when ready, then sync
+  // Always wait for GPS before syncing — ensures location is captured
+  // GPS has max 3s timeout so this won't delay much
   locationPromise.then(location => {
     if (location) {
       const mapsLink = 'https://maps.google.com/?q='+location.lat+','+location.lng;
@@ -632,12 +633,16 @@ async function doSubmit() {
       lastPayload.lng = location.lng;
       lastPayload.mapsLink = mapsLink;
     }
-    // Sync after GPS resolves (with or without location)
+    // Only sync AFTER GPS resolves (max 3s wait)
     if (navigator.onLine) syncOfflineQueue().catch(() => {});
   }).catch(() => {
-    // GPS failed - sync anyway without location
+    // GPS failed or timed out - sync without location
     if (navigator.onLine) syncOfflineQueue().catch(() => {});
   });
+  // Safety net: if GPS promise hangs for more than 5s, sync anyway
+  setTimeout(() => {
+    if (navigator.onLine) syncOfflineQueue().catch(() => {});
+  }, 5000);
   showSuccess(lastPayload, offline);
   btn.classList.remove('loading');
   document.getElementById('btn-submit-text').textContent = T[lang].submit;
