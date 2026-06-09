@@ -125,6 +125,12 @@
 </head>
 <body>
 
+<!-- Update Banner -->
+<div id="update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#1565c0;color:white;padding:12px 16px;display:none;align-items:center;justify-content:space-between;gap:12px">
+  <span style="font-size:13px;font-weight:500">🔄 Nouvelle version disponible!</span>
+  <button onclick="applyUpdate()" style="background:white;color:#1565c0;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">Mettre à jour</button>
+</div>
+
 <div class="screen" id="screen-login">
   <canvas id="login-canvas"></canvas>
   <div class="login-card" style="position:relative;z-index:1">
@@ -226,6 +232,54 @@
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzzUMBagbel4VnK32cTDOL_iFZVQwSApfiGpeBIfX7HsSfPr472ghMykUqS8kPQmYMo/exec';
 const SESSION_KEY = 'ee_session';
 const QUEUE_KEY = 'ee_offline_queue';
+const SCRIPT_URL_SW = 'https://script.google.com/macros/s/AKfycbzzUMBagbel4VnK32cTDOL_iFZVQwSApfiGpeBIfX7HsSfPr472ghMykUqS8kPQmYMo/exec';
+
+// IndexedDB for reliable offline storage (survives app close)
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('ee-delivery', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('queue', { autoIncrement: true });
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function getQueueIDB() {
+  try {
+    const db = await openDB();
+    if (!db) return [];
+    return new Promise(resolve => {
+      const tx = db.transaction('queue', 'readonly');
+      const req = tx.objectStore('queue').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  } catch(e) { return []; }
+}
+
+async function clearQueueIDB() {
+  try {
+    const db = await openDB();
+    if (!db) return;
+    return new Promise(resolve => {
+      const tx = db.transaction('queue', 'readwrite');
+      tx.objectStore('queue').clear();
+      tx.oncomplete = resolve;
+    });
+  } catch(e) {}
+}
+
+async function addToQueueIDB(item) {
+  try {
+    const db = await openDB();
+    if (!db) return;
+    return new Promise(resolve => {
+      const tx = db.transaction('queue', 'readwrite');
+      tx.objectStore('queue').add(item);
+      tx.oncomplete = resolve;
+    });
+  } catch(e) {}
+}
 const LANG_KEY = 'ee_lang';
 const DARK_KEY = 'ee_dark';
 
@@ -480,6 +534,19 @@ function retakePhoto() {
   triggerCamera();
 }
 
+// ---- AUTO UPDATE ----
+function showUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (banner) banner.style.display = 'flex';
+}
+
+function applyUpdate() {
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+  }
+  window.location.reload();
+}
+
 // ---- DOCUMENT NUMBER VALIDATION ----
 const AUTO_CORRECT = ['ODLP','ODL','BDT','BLS','BL','RC']; // order matters - longer prefixes first
 
@@ -647,11 +714,21 @@ function queueOffline(payload) {
 
 async function syncOfflineQueue() {
   if (isSyncing) return;
-  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+  // Merge localStorage + IndexedDB queues
+  const lsQueue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+  const idbQueue = await getQueueIDB();
+  // Deduplicate by submissionId
+  const seen = new Set();
+  const queue = [...lsQueue, ...idbQueue].filter(item => {
+    const id = item.submissionId || JSON.stringify(item);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
   if (!queue.length) return;
   isSyncing = true;
-  // Clear queue immediately to prevent re-processing
   localStorage.setItem(QUEUE_KEY, JSON.stringify([]));
+  await clearQueueIDB();
   const remaining = [];
   let synced = 0;
   for (const item of queue) {
@@ -659,9 +736,11 @@ async function syncOfflineQueue() {
     if (!ok) remaining.push(item);
     else synced++;
   }
-  // Only put back the ones that truly failed
   const currentQueue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
   localStorage.setItem(QUEUE_KEY, JSON.stringify([...currentQueue, ...remaining]));
+  if (remaining.length) {
+    for (const item of remaining) await addToQueueIDB(item);
+  }
   isSyncing = false;
   // Force badge update
   const badge = document.getElementById('pending-badge');
@@ -737,7 +816,28 @@ document.addEventListener('keydown', e => {
 });
 
 // Register service worker
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(reg => {
+    // Check for updates every 60 seconds
+    setInterval(() => reg.update(), 60000);
+    // Show update banner when new SW is waiting
+    reg.addEventListener('updatefound', () => {
+      const newSW = reg.installing;
+      newSW.addEventListener('statechange', () => {
+        if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+          showUpdateBanner();
+        }
+      });
+    });
+  }).catch(()=>{});
+  // Listen for messages from SW (background sync done)
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.type === 'SYNC_DONE') {
+      syncOfflineQueue();
+      renderPendingBadge();
+    }
+  });
+}
 
 // ---- ANIMATED LOGIN BACKGROUND ----
 (function() {
