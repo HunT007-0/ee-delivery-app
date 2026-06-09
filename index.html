@@ -847,18 +847,27 @@ document.addEventListener('keydown', e => {
 // Register service worker
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').then(reg => {
-    // Check for updates every 60 seconds
-    setInterval(() => reg.update(), 60000);
-    // Show update banner when new SW is waiting
+    // Check for updates every 30 seconds
+    setInterval(() => reg.update(), 30000);
+    // Auto-reload when new SW is ready — no user action needed
     reg.addEventListener('updatefound', () => {
       const newSW = reg.installing;
       newSW.addEventListener('statechange', () => {
         if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-          showUpdateBanner();
+          // New version ready — tell SW to activate immediately
+          newSW.postMessage({ type: 'SKIP_WAITING' });
         }
       });
     });
   }).catch(()=>{});
+  // When SW takes control (after skip waiting) — reload the page
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
   // Listen for messages from SW (background sync done)
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data && e.data.type === 'SYNC_DONE') {
