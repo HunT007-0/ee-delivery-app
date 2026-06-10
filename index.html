@@ -552,7 +552,7 @@ function handlePhoto(input) {
     img.onerror = () => alert('Impossible de charger la photo. Réessayez.');
     img.src = e.target.result;
   };
-  reader.onerror = () => alert('Erreur lecture photo. Réessayez.');
+  reader.onerror = () => {};
   reader.readAsDataURL(file);
 }
 function retakePhoto() {
@@ -666,21 +666,32 @@ async function lookupClient() {
 // ---- GEOLOCATION ----
 function getLocation() {
   return new Promise(resolve => {
+    // Use already-captured GPS if available (captured when camera opened)
+    if (window._lastGPS) {
+      const cached = window._lastGPS;
+      window._lastGPS = null; // use once
+      resolve(cached);
+      return;
+    }
+    // If GPS promise already running, wait for it
+    if (window._gpsPromise) {
+      const p = window._gpsPromise;
+      window._gpsPromise = null;
+      p.then(resolve).catch(() => resolve(null));
+      return;
+    }
     if (!navigator.geolocation) { resolve(null); return; }
-    // Try to get location fast:
-    // - Accept cached location up to 30 seconds old (livreur is still nearby)
-    // - Timeout after 3 seconds max
+    // Fresh GPS request - 5 second timeout
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {
-        // If fast attempt fails, try one more time with low accuracy
         navigator.geolocation.getCurrentPosition(
           pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
           () => resolve(null),
-          { timeout: 3000, enableHighAccuracy: false, maximumAge: 60000 }
+          { timeout: 5000, enableHighAccuracy: false, maximumAge: 60000 }
         );
       },
-      { timeout: 3000, enableHighAccuracy: true, maximumAge: 30000 }
+      { timeout: 5000, enableHighAccuracy: true, maximumAge: 30000 }
     );
   });
 }
@@ -735,10 +746,27 @@ async function sendToServer(payload) {
 }
 
 function queueOffline(payload) {
-  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
-  queue.push({...payload, queuedAt:Date.now()});
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  try {
+    const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+    // Avoid duplicates
+    if (!queue.find(q => q.submissionId && q.submissionId === payload.submissionId)) {
+      queue.push({...payload, queuedAt:Date.now()});
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    }
+  } catch(e) {
+    // localStorage full - clear flags cache and retry
+    try { localStorage.removeItem('ee_flags'); } catch(e2) {}
+    try {
+      localStorage.setItem(QUEUE_KEY, JSON.stringify([{...payload, queuedAt:Date.now()}]));
+    } catch(e3) {}
+  }
   renderPendingBadge();
+  // Also save to IndexedDB for persistence when app is closed
+  addToQueueIDB(payload).catch(() => {});
+  // Register background sync
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    try { navigator.serviceWorker.controller.postMessage({ type: 'QUEUE_DELIVERY', payload }); } catch(e) {}
+  }
 }
 
 async function syncOfflineQueue() {
@@ -865,6 +893,8 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!refreshing) {
       refreshing = true;
+      // Save current session before reload so user stays logged in
+      sessionStorage.setItem('ee_reload_update', '1');
       window.location.reload();
     }
   });
