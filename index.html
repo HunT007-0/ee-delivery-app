@@ -549,7 +549,7 @@ function handlePhoto(input) {
         }
       }
     };
-    img.onerror = () => { photoBase64 = null; }; // silent fail
+    img.onerror = () => alert('Impossible de charger la photo. Réessayez.');
     img.src = e.target.result;
   };
   reader.onerror = () => {};
