@@ -506,51 +506,40 @@ function triggerCamera() { document.getElementById('camera-input').click(); }
 function handlePhoto(input) {
   const file = input.files[0];
   if (!file) return;
-  // Free previous photo memory
   photoBase64 = null;
-  
+
   const reader = new FileReader();
   reader.onload = e => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        // Reduce max size for low-memory phones
-        const MAX = 800;
-        let w = img.width, h = img.height;
-        if (w > MAX) { h = Math.round(h*MAX/w); w = MAX; }
-        if (h > MAX) { w = Math.round(w*MAX/h); h = MAX; }
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        // Lower quality for smaller file size
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
-        photoBase64 = dataUrl.split(',')[1];
-        document.getElementById('photo-preview-img').src = dataUrl;
-        document.getElementById('camera-zone').classList.add('photo-taken');
-        document.getElementById('camera-preview').style.display = 'block';
-        // Free canvas memory
-        canvas.width = 0; canvas.height = 0;
-        // Clear the img src to free memory
-        img.src = '';
-      } catch(memErr) {
-        // If still failing, try even smaller
+    const dataUrl = e.target.result;
+    
+    // Step 1: Set photoBase64 IMMEDIATELY from raw file
+    // This ensures submit works even if canvas/image fails
+    photoBase64 = dataUrl.split(',')[1];
+    document.getElementById('photo-preview-img').src = dataUrl;
+    document.getElementById('camera-zone').classList.add('photo-taken');
+    document.getElementById('camera-preview').style.display = 'block';
+    
+    // Step 2: Try to compress in background (optional improvement)
+    try {
+      const img = new Image();
+      img.onload = () => {
         try {
-          const canvas2 = document.createElement('canvas');
-          canvas2.width = 600; canvas2.height = 400;
-          canvas2.getContext('2d').drawImage(img, 0, 0, 600, 400);
-          const dataUrl2 = canvas2.toDataURL('image/jpeg', 0.5);
-          photoBase64 = dataUrl2.split(',')[1];
-          document.getElementById('photo-preview-img').src = dataUrl2;
-          document.getElementById('camera-zone').classList.add('photo-taken');
-          document.getElementById('camera-preview').style.display = 'block';
-        } catch(e) {
-          alert('Erreur photo. Réessayez.');
-        }
-      }
-    };
-    img.onerror = () => alert('Impossible de charger la photo. Réessayez.');
-    img.src = e.target.result;
+          const canvas = document.createElement('canvas');
+          const MAX = 800;
+          let w = img.width, h = img.height;
+          if (w > MAX) { h = Math.round(h*MAX/w); w = MAX; }
+          if (h > MAX) { w = Math.round(w*MAX/h); h = MAX; }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL('image/jpeg', 0.65);
+          photoBase64 = compressed.split(',')[1]; // upgrade to compressed
+          document.getElementById('photo-preview-img').src = compressed;
+          canvas.width = 0; canvas.height = 0;
+        } catch(e) {} // keep original if compression fails
+      };
+      img.onerror = () => {}; // keep original if img load fails
+      img.src = dataUrl;
+    } catch(e) {} // keep original if everything fails
   };
   reader.onerror = () => {};
   reader.readAsDataURL(file);
@@ -705,7 +694,7 @@ async function doSubmit() {
   if (!docNum) { docInput.classList.add('error'); docInput.focus(); return; }
   // Send any pending flags
   sendPendingFlags();
-  if (!photoBase64) { alert(T[lang].cameraSub); return; }
+  if (!photoBase64) { alert(T[lang].photoRequired || 'Veuillez prendre une photo avant de soumettre.'); return; }
   const btn = document.getElementById('btn-submit');
   btn.classList.add('loading');
   document.getElementById('btn-submit-text').textContent = T[lang].submitting;
