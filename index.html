@@ -370,14 +370,32 @@ window.addEventListener('load', () => {
   const session = localStorage.getItem(SESSION_KEY);
   if (session) { currentUser = JSON.parse(session); showDeliverScreen(); }
   checkOffline();
+
+  // Sync when coming back online
   window.addEventListener('online', () => {
+    checkOffline();
     setTimeout(() => syncOfflineQueue(), 1500);
   });
+  window.addEventListener('offline', () => { checkOffline(); });
+
   renderPendingBadge();
-  // Try to sync on load if already online and there are pending items
+
+  // Try to sync on every app open (handles "whole day offline" case)
   if (navigator.onLine) {
     setTimeout(() => syncOfflineQueue(), 2000);
   }
+
+  // Also try to sync when app comes back to foreground (phone screen on)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) {
+      setTimeout(() => syncOfflineQueue(), 1000);
+    }
+  });
+
+  // Periodic sync attempt every 2 minutes while app is open
+  setInterval(() => {
+    if (navigator.onLine) syncOfflineQueue().catch(() => {});
+  }, 120000);
 });
 
 function applyLang() {
@@ -737,40 +755,27 @@ async function sendToServer(payload) {
 function queueOffline(payload) {
   try {
     const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
-    // Avoid duplicates
-    if (!queue.find(q => q.submissionId && q.submissionId === payload.submissionId)) {
-      queue.push({...payload, queuedAt:Date.now()});
-      localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    // Avoid duplicates by submissionId
+    if (payload.submissionId && queue.find(q => q.submissionId === payload.submissionId)) {
+      return; // already queued
     }
+    queue.push({...payload, queuedAt:Date.now()});
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
   } catch(e) {
-    // localStorage full - clear flags cache and retry
     try { localStorage.removeItem('ee_flags'); } catch(e2) {}
-    try {
-      localStorage.setItem(QUEUE_KEY, JSON.stringify([{...payload, queuedAt:Date.now()}]));
-    } catch(e3) {}
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify([{...payload, queuedAt:Date.now()}])); } catch(e3) {}
   }
   renderPendingBadge();
-  // Also save to IndexedDB for persistence when app is closed
+  // Save to IndexedDB for background sync ONLY (not for immediate upload)
   addToQueueIDB(payload).catch(() => {});
-  // Register background sync
-  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-    try { navigator.serviceWorker.controller.postMessage({ type: 'QUEUE_DELIVERY', payload }); } catch(e) {}
-  }
 }
 
 async function syncOfflineQueue() {
   if (isSyncing) return;
   // Merge localStorage + IndexedDB queues
   const lsQueue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
-  const idbQueue = await getQueueIDB();
-  // Deduplicate by submissionId
-  const seen = new Set();
-  const queue = [...lsQueue, ...idbQueue].filter(item => {
-    const id = item.submissionId || JSON.stringify(item);
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
+  // Use localStorage only for immediate sync (IDB is for when app is closed)
+  const queue = lsQueue;
   if (!queue.length) return;
   isSyncing = true;
   localStorage.setItem(QUEUE_KEY, JSON.stringify([]));
@@ -788,7 +793,6 @@ async function syncOfflineQueue() {
     for (const item of remaining) await addToQueueIDB(item);
   }
   isSyncing = false;
-  // Force badge update
   const badge = document.getElementById('pending-badge');
   if (badge) {
     const q = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
@@ -799,7 +803,11 @@ async function syncOfflineQueue() {
       renderPendingBadge();
     }
   }
-  if (synced > 0) showSyncNotification(synced);
+  if (synced > 0) {
+    showSyncNotification(synced);
+    // Also clear IDB after successful sync
+    clearQueueIDB().catch(() => {});
+  }
 }
 
 function showSyncNotification(count) {
