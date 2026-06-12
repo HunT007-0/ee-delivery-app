@@ -508,16 +508,43 @@ function doLogout() {
 function showDeliverScreen() {
   document.getElementById('screen-login').classList.add('hidden');
   document.getElementById('screen-deliver').classList.remove('hidden');
-  // Pre-warm GPS so it's ready when livreur submits
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(() => {}, () => {}, 
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
-  }
+  // Start continuous GPS watch — permission asked ONCE, location always ready
+  startGPSWatch();
   const initials = currentUser.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-name').textContent = currentUser.name;
   applyLang();
 }
+
+// ---- CONTINUOUS GPS WATCH ----
+// Keeps window._lastGPS always fresh while the app is open.
+// Permission is requested once; the watch keeps it warm so no re-prompt.
+let _gpsWatchId = null;
+function startGPSWatch() {
+  if (!navigator.geolocation) return;
+  if (_gpsWatchId !== null) return; // already watching
+  try {
+    _gpsWatchId = navigator.geolocation.watchPosition(
+      pos => {
+        window._lastGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+      },
+      err => {
+        // If watch fails (permission denied / GPS off), retry in 30s
+        if (_gpsWatchId !== null) { try { navigator.geolocation.clearWatch(_gpsWatchId); } catch(e){} }
+        _gpsWatchId = null;
+        setTimeout(startGPSWatch, 30000);
+      },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 25000 }
+    );
+  } catch(e) { _gpsWatchId = null; }
+}
+// Restart GPS watch when app comes back to foreground (Android pauses it in background)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentUser) {
+    if (_gpsWatchId !== null) { try { navigator.geolocation.clearWatch(_gpsWatchId); } catch(e){} _gpsWatchId = null; }
+    startGPSWatch();
+  }
+});
 
 // ---- CAMERA ----
 function triggerCamera() { document.getElementById('camera-input').click(); }
@@ -673,34 +700,49 @@ async function lookupClient() {
 // ---- GEOLOCATION ----
 function getLocation() {
   return new Promise(resolve => {
-    // Use already-captured GPS if available (captured when camera opened)
-    if (window._lastGPS) {
-      const cached = window._lastGPS;
-      window._lastGPS = null; // use once
-      resolve(cached);
+    // Use the continuously-updated GPS if fresh (less than 3 minutes old)
+    // Do NOT delete it — next deliveries can reuse it
+    if (window._lastGPS && window._lastGPS.lat && (Date.now() - (window._lastGPS.ts||0)) < 180000) {
+      resolve({ lat: window._lastGPS.lat, lng: window._lastGPS.lng });
       return;
     }
-    // If GPS promise already running, wait for it
+    // Legacy pre-warm promise support
     if (window._gpsPromise) {
       const p = window._gpsPromise;
       window._gpsPromise = null;
-      p.then(resolve).catch(() => resolve(null));
+      p.then(loc => {
+        if (loc) resolve(loc);
+        else freshGPS(resolve);
+      }).catch(() => freshGPS(resolve));
       return;
     }
+    freshGPS(resolve);
+  });
+
+  function freshGPS(resolve) {
     if (!navigator.geolocation) { resolve(null); return; }
-    // Fresh GPS request - 5 second timeout
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      pos => {
+        window._lastGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+        resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
       () => {
         navigator.geolocation.getCurrentPosition(
-          pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          () => resolve(null),
-          { timeout: 5000, enableHighAccuracy: false, maximumAge: 60000 }
+          pos => {
+            window._lastGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+            resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          },
+          () => {
+            // Last resort: use stale cached GPS if any (better than nothing)
+            if (window._lastGPS && window._lastGPS.lat) resolve({ lat: window._lastGPS.lat, lng: window._lastGPS.lng });
+            else resolve(null);
+          },
+          { timeout: 8000, enableHighAccuracy: false, maximumAge: 300000 }
         );
       },
-      { timeout: 5000, enableHighAccuracy: true, maximumAge: 30000 }
+      { timeout: 6000, enableHighAccuracy: true, maximumAge: 60000 }
     );
-  });
+  }
 }
 
 // ---- SUBMIT ----
