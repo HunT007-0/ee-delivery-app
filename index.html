@@ -510,6 +510,7 @@ function showDeliverScreen() {
   document.getElementById('screen-deliver').classList.remove('hidden');
   // Start continuous GPS watch — permission asked ONCE, location always ready
   startGPSWatch();
+  checkGpsPermission();
   const initials = currentUser.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-name').textContent = currentUser.name;
@@ -545,6 +546,33 @@ document.addEventListener('visibilitychange', () => {
     startGPSWatch();
   }
 });
+
+// Warn the livreur ONCE if location permission is not granted persistently.
+function checkGpsPermission() {
+  try {
+    if (!navigator.permissions || !navigator.permissions.query) return;
+    navigator.permissions.query({ name: 'geolocation' }).then(status => {
+      if (status.state === 'denied') {
+        showGpsWarning('La localisation est bloquee. Activez-la: Reglages > Applications > EE Delivery > Autorisations > Position > Autoriser.');
+      } else if (status.state === 'prompt') {
+        // Trigger the prompt now so it is granted before first delivery
+        navigator.geolocation.getCurrentPosition(()=>{}, ()=>{}, { enableHighAccuracy:true, timeout:20000 });
+      }
+    }).catch(()=>{});
+  } catch(e) {}
+}
+
+function showGpsWarning(msg) {
+  let bar = document.getElementById('gps-warning');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'gps-warning';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9998;background:#e53935;color:#fff;padding:10px 14px;font-size:13px;font-weight:600;text-align:center;line-height:1.4';
+    document.body.appendChild(bar);
+  }
+  bar.textContent = '📍 ' + msg;
+  bar.style.display = 'block';
+}
 
 // ---- CAMERA ----
 function triggerCamera() { document.getElementById('camera-input').click(); }
@@ -727,22 +755,52 @@ function getLocation() {
         resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
       },
       () => {
+        // Second attempt: low accuracy, longer timeout (slow phones)
         navigator.geolocation.getCurrentPosition(
           pos => {
             window._lastGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
             resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           },
           () => {
-            // Last resort: use stale cached GPS if any (better than nothing)
             if (window._lastGPS && window._lastGPS.lat) resolve({ lat: window._lastGPS.lat, lng: window._lastGPS.lng });
             else resolve(null);
           },
-          { timeout: 8000, enableHighAccuracy: false, maximumAge: 300000 }
+          { timeout: 12000, enableHighAccuracy: false, maximumAge: 300000 }
         );
       },
-      { timeout: 6000, enableHighAccuracy: true, maximumAge: 60000 }
+      { timeout: 10000, enableHighAccuracy: true, maximumAge: 60000 }
     );
   }
+}
+
+// Keep trying to attach GPS to a just-submitted delivery for ~20s on slow phones.
+function retryLateGPS(subId, attempt) {
+  if (attempt > 6) return; // ~20s total
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      window._lastGPS = { lat: loc.lat, lng: loc.lng, ts: Date.now() };
+      // Patch the queued item (if still pending locally) with the GPS
+      try {
+        const queue = JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');
+        let changed = false;
+        for (const it of queue) {
+          if (it.submissionId === subId && !it.lat) {
+            it.lat = loc.lat; it.lng = loc.lng;
+            it.mapsLink = 'https://maps.google.com/?q='+loc.lat+','+loc.lng;
+            changed = true;
+          }
+        }
+        if (changed) {
+          localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+          if (navigator.onLine) syncOfflineQueue().catch(()=>{});
+        }
+      } catch(e) {}
+    },
+    () => { setTimeout(() => retryLateGPS(subId, attempt+1), 3000); },
+    { timeout: 4000, enableHighAccuracy: true, maximumAge: 0 }
+  );
 }
 
 // ---- SUBMIT ----
@@ -768,19 +826,21 @@ async function doSubmit() {
   showSuccess(lastPayload, offline);
 
   // Get GPS then queue and upload — all in background
+  const thisId = submissionId;
   getLocation().then(location => {
     if (location) {
       lastPayload.lat = location.lat;
       lastPayload.lng = location.lng;
       lastPayload.mapsLink = 'https://maps.google.com/?q='+location.lat+','+location.lng;
     }
-    // Queue with GPS included
     queueOffline(lastPayload);
     if (navigator.onLine) syncOfflineQueue().catch(() => {});
+    // If still no GPS, keep retrying for ~20s and patch the queued item, then re-sync
+    if (!location) retryLateGPS(thisId, 0);
   }).catch(() => {
-    // GPS failed — queue without location
     queueOffline(lastPayload);
     if (navigator.onLine) syncOfflineQueue().catch(() => {});
+    retryLateGPS(thisId, 0);
   });
   btn.classList.remove('loading');
   document.getElementById('btn-submit-text').textContent = T[lang].submit;
