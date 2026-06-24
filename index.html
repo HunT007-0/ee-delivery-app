@@ -508,6 +508,12 @@ function doLogout() {
 function showDeliverScreen() {
   document.getElementById('screen-login').classList.add('hidden');
   document.getElementById('screen-deliver').classList.remove('hidden');
+  // Stop login canvas animation to free memory for camera
+  try {
+    const canvas = document.getElementById('login-canvas');
+    if (canvas) { const ctx = canvas.getContext('2d'); if(ctx) ctx.clearRect(0,0,canvas.width,canvas.height); canvas.width=1; canvas.height=1; }
+    if (window._loginAnimFrame) { cancelAnimationFrame(window._loginAnimFrame); window._loginAnimFrame = null; }
+  } catch(e) {}
   // Start continuous GPS watch — permission asked ONCE, location always ready
   startGPSWatch();
   checkGpsPermission();
@@ -575,7 +581,9 @@ function showGpsWarning(msg) {
 }
 
 // ---- CAMERA ----
-function triggerCamera() { document.getElementById('camera-input').click(); }
+function triggerCamera() {
+  document.getElementById('camera-input').click();
+}
 function handlePhoto(input) {
   const file = input.files[0];
   if (!file) return;
@@ -598,7 +606,7 @@ function handlePhoto(input) {
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          const MAX = 800;
+          const MAX = 640; // smaller for low-memory phones
           let w = img.width, h = img.height;
           if (w > MAX) { h = Math.round(h*MAX/w); w = MAX; }
           if (h > MAX) { w = Math.round(w*MAX/h); h = MAX; }
