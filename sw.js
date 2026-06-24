@@ -1,5 +1,5 @@
 // Service Worker v11 - Background sync + auto-update
-const CACHE = 'ee-delivery-v15';
+const CACHE = 'ee-delivery-v100';
 const ASSETS = ['/index.html', '/manifest.json'];
 const SYNC_TAG = 'ee-sync-deliveries';
 
