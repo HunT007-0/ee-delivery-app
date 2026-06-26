@@ -359,6 +359,7 @@ let lang = localStorage.getItem(LANG_KEY) || 'fr';
 let darkMode = localStorage.getItem(DARK_KEY) === 'true';
 let currentUser = null;
 let photoBase64 = null;
+let photoReady = true; // true when compression is done
 let lastPayload = null;
 
 // ---- INIT ----
@@ -588,45 +589,82 @@ function handlePhoto(input) {
   const file = input.files[0];
   if (!file) return;
   photoBase64 = null;
+  photoReady = false; // flag — submit waits for compression
 
   const reader = new FileReader();
   reader.onload = e => {
-    const dataUrl = e.target.result;
-    
-    // Step 1: Set photoBase64 IMMEDIATELY from raw file
-    // This ensures submit works even if canvas/image fails
-    photoBase64 = dataUrl.split(',')[1];
-    document.getElementById('photo-preview-img').src = dataUrl;
+    const rawDataUrl = e.target.result;
+    // Show preview immediately so livreur sees the photo
+    document.getElementById('photo-preview-img').src = rawDataUrl;
     document.getElementById('camera-zone').classList.add('photo-taken');
     document.getElementById('camera-preview').style.display = 'block';
-    
-    // Step 2: Try to compress in background (optional improvement)
-    try {
-      const img = new Image();
-      img.onload = () => {
+
+    // Compress in background — DO NOT use raw file (too large, crashes)
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // Smart sizing: keep aspect ratio, max 1280px on longest side
+        // High quality (0.88) so bon de commande text is readable and zoomable
+        const MAX = 1280;
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        // Only downscale if larger than MAX — never upscale low-res camera
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+        // Quality 0.88 — high enough to read text, small enough to upload fast
+        const compressed = canvas.toDataURL('image/jpeg', 0.88);
+        photoBase64 = compressed.split(',')[1];
+        photoReady = true;
+        // Update preview to compressed version
+        document.getElementById('photo-preview-img').src = compressed;
+        // Free canvas memory
+        canvas.width = 0; canvas.height = 0;
+        img.src = '';
+      } catch(memErr) {
+        // Low-memory fallback: smaller size, lower quality but still readable
         try {
-          const canvas = document.createElement('canvas');
-          const MAX = 640; // smaller for low-memory phones
-          let w = img.width, h = img.height;
-          if (w > MAX) { h = Math.round(h*MAX/w); w = MAX; }
-          if (h > MAX) { w = Math.round(w*MAX/h); h = MAX; }
-          canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-          const compressed = canvas.toDataURL('image/jpeg', 0.65);
-          photoBase64 = compressed.split(',')[1]; // upgrade to compressed
-          document.getElementById('photo-preview-img').src = compressed;
-          canvas.width = 0; canvas.height = 0;
-        } catch(e) {} // keep original if compression fails
-      };
-      img.onerror = () => {}; // keep original if img load fails
-      img.src = dataUrl;
-    } catch(e) {} // keep original if everything fails
+          const MAX2 = 800;
+          let w2 = img.width, h2 = img.height;
+          if (w2 > MAX2 || h2 > MAX2) {
+            if (w2 > h2) { h2 = Math.round(h2 * MAX2 / w2); w2 = MAX2; }
+            else { w2 = Math.round(w2 * MAX2 / h2); h2 = MAX2; }
+          }
+          const canvas2 = document.createElement('canvas');
+          canvas2.width = w2; canvas2.height = h2;
+          canvas2.getContext('2d').drawImage(img, 0, 0, w2, h2);
+          const compressed2 = canvas2.toDataURL('image/jpeg', 0.78);
+          photoBase64 = compressed2.split(',')[1];
+          photoReady = true;
+          document.getElementById('photo-preview-img').src = compressed2;
+          canvas2.width = 0; canvas2.height = 0;
+        } catch(e) {
+          // Last resort: use raw file directly (may be large but submit will work)
+          photoBase64 = rawDataUrl.split(',')[1];
+          photoReady = true;
+        }
+      }
+    };
+    img.onerror = () => {
+      // Image load failed — use raw data as fallback
+      photoBase64 = rawDataUrl.split(',')[1];
+      photoReady = true;
+    };
+    img.src = rawDataUrl;
   };
-  reader.onerror = () => {};
+  reader.onerror = () => { photoReady = true; }; // unblock submit
   reader.readAsDataURL(file);
 }
 function retakePhoto() {
   photoBase64 = null;
+  photoReady = true;
   document.getElementById('camera-zone').classList.remove('photo-taken');
   document.getElementById('camera-preview').style.display = 'none';
   document.getElementById('camera-input').value = '';
@@ -820,6 +858,13 @@ async function doSubmit() {
   if (!docNum) { docInput.classList.add('error'); docInput.focus(); return; }
   // Send any pending flags
   sendPendingFlags();
+  // Wait for photo compression to finish (max 3 seconds)
+  if (!photoReady) {
+    await new Promise(resolve => {
+      const chk = setInterval(() => { if (photoReady) { clearInterval(chk); resolve(); } }, 100);
+      setTimeout(() => { clearInterval(chk); resolve(); }, 3000);
+    });
+  }
   if (!photoBase64) { alert(T[lang].photoRequired || 'Veuillez prendre une photo avant de soumettre.'); return; }
   const btn = document.getElementById('btn-submit');
   btn.classList.add('loading');
