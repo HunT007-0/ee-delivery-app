@@ -209,7 +209,7 @@
           <button class="retake-btn" onclick="retakePhoto()" id="btn-retake">↺ Reprendre</button>
         </div>
       </div>
-      <input type="file" id="camera-input" accept="image/jpeg;capture=camera" capture="environment" onchange="handlePhoto(this)" />
+      <input type="file" id="camera-input" accept="image/*" capture="environment" onchange="handlePhoto(this)" />
     </div>
     <button class="btn-submit" id="btn-submit" onclick="doSubmit()">
       <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
