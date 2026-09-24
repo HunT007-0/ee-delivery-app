@@ -1,6 +1,6 @@
 // Service Worker — EE Delivery
 // À chaque mise à jour de l'application, changer CACHE (v107 -> v108 ...).
-const CACHE = 'ee-delivery-v109';
+const CACHE = 'ee-delivery-v110';
 const SHELL = ['/', '/index.html', '/manifest.json'];
 const SYNC_TAG = 'ee-sync-deliveries';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzzUMBagbel4VnK32cTDOL_iFZVQwSApfiGpeBIfX7HsSfPr472ghMykUqS8kPQmYMo/exec';
