@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="fr" dir="ltr">
+<html lang="fr" dir="ltr" translate="no" class="notranslate">
 <head>
   <meta charset="UTF-8" />
+  <meta name="google" content="notranslate" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -28,6 +29,8 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg); color: var(--text); min-height: 100vh;
+      /* dvh = hauteur reellement visible, barre du navigateur deduite */
+      min-height: 100dvh;
       overscroll-behavior-y: contain; transition: background 0.3s, color 0.3s;
     }
     .hidden { display: none !important; }
@@ -82,11 +85,19 @@ body{margin:0;background:#241B4A}
 
     /* Garde-fou : les maquettes livrées en page autonome figent souvent la
        hauteur du document, ce qui bloquerait le défilement de l'application. */
-    html { height: auto !important; overflow-y: auto !important; }
-    body { height: auto !important; min-height: 100vh; overflow-x: hidden !important; }
+    /* Defilement : on se contente de NEUTRALISER ce qui pourrait le bloquer
+       (height:100% / overflow:hidden venus d'une maquette). On ne declare
+       aucun overflow actif : des qu'un axe vaut hidden, l'autre passe a "auto"
+       et l'element devient un conteneur de defilement de la hauteur exacte de
+       son contenu -- donc plus rien ne defile. Le debordement horizontal est
+       nul sur toutes les pages (verifie de 320 a 412px), il n'y a donc rien a
+       masquer. C'est le modele standard, celui que tous les navigateurs
+       integres (WhatsApp, Facebook, Instagram...) savent gerer. */
+    html { height: auto !important; overflow: visible !important; }
+    body { height: auto !important; overflow: visible !important; }
 
     /* ---------- CONNEXION PAR CODE PIN ---------- */
-    #screen-login { min-height: 100vh; display: flex; flex-direction: column; background: var(--card); }
+    #screen-login { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--card); }
     .login-wave { position: relative; background: linear-gradient(160deg, var(--green-2), var(--green-dark)); padding: 26px 22px 0; }
     .login-wave .wave-shape { display: block; width: 100%; margin-bottom: -1px; }
     .login-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
@@ -1482,7 +1493,29 @@ function checkCameraFallback() {
 // La hauteur de la barre du bas varie selon le telephone (barre systeme,
 // taille de police, navigateur integre de WhatsApp...). On la mesure au lieu
 // de la deviner, et on reserve exactement ce qu'il faut sous le contenu.
+// Filet de securite : si le document a de quoi defiler mais qu'un element
+// l'en empeche (overflow pose par une maquette importee, par exemple), on
+// retablit. Sans ca, le symptome est invisible au developpement et bloquant
+// sur le telephone du livreur.
+function ensureScrollable() {
+  try {
+    // On ne teste PAS "est-ce que la page deborde ?" : overflow:hidden efface
+    // justement cette preuve (scrollHeight retombe a clientHeight). On verifie
+    // donc directement l'etat de <html> et <body>, et on retablit sans condition.
+    [document.documentElement, document.body].forEach(n => {
+      const s = getComputedStyle(n);
+      if (s.overflowY !== 'visible' || s.overflowX !== 'visible') {
+        n.style.setProperty('overflow', 'visible', 'important');
+      }
+      if (s.height !== 'auto' && s.position !== 'fixed') {
+        n.style.setProperty('height', 'auto', 'important');
+      }
+    });
+  } catch (e) {}
+}
+
 function fitBottomNav() {
+  ensureScrollable();
   try {
     const nav = document.querySelector('.bottom-nav');
     const wrap = document.querySelector('.body-wrap');
