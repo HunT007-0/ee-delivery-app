@@ -956,6 +956,7 @@ const T = {
     pending: n => '⏳ ' + n + ' livraison(s) en attente d\'envoi',
     pendingBlocked: n => '⏳ ' + n + ' livraison(s) en attente — reconnectez-vous avec votre code PIN',
     pendingStuck: a => '⚠️ ' + a[0] + ' livraison(s) bloquée(s) — le serveur refuse : ' + a[1] + '. Elles repartiront seules, rien à faire.',
+    pendingStuckUnknown: n => '⚠️ ' + n + ' livraison(s) bloquée(s) — nouvel essai en cours. Elles repartiront seules, rien à faire.',
     offlineNote: 'Hors ligne — les livraisons sont enregistrées et partiront automatiquement',
     synced: n => '✅ ' + n + ' livraison(s) envoyée(s)',
     formTitle: 'INFORMATIONS DU DOCUMENT', lblDocnum: 'Numéro de document (BL / ODL / DT)', lblClient: 'Code client',
@@ -996,6 +997,7 @@ const T = {
     pending: n => '⏳ ' + n + ' توصيل(ات) في انتظار الإرسال',
     pendingBlocked: n => '⏳ ' + n + ' توصيل(ات) في الانتظار — أعد تسجيل الدخول برمزك',
     pendingStuck: a => '⚠️ ' + a[0] + ' توصيل(ات) متوقفة — الخادم يرفض : ' + a[1] + '. ستُرسل وحدها، لا شيء تفعله.',
+    pendingStuckUnknown: n => '⚠️ ' + n + ' توصيل(ات) متوقفة — محاولة جديدة جارية. ستُرسل وحدها، لا شيء تفعله.',
     offlineNote: 'غير متصل — التوصيلات محفوظة وسترسل تلقائياً',
     synced: n => '✅ تم إرسال ' + n + ' توصيل(ات)',
     formTitle: 'معلومات الوثيقة', lblDocnum: 'رقم الوثيقة (BL / ODL / DT)', lblClient: 'رمز العميل',
@@ -1036,6 +1038,7 @@ const T = {
     pending: n => '⏳ ' + n + ' delivery(ies) waiting to be sent',
     pendingBlocked: n => '⏳ ' + n + ' delivery(ies) waiting — log in again with your PIN',
     pendingStuck: a => '⚠️ ' + a[0] + ' delivery(ies) stuck — the server refuses: ' + a[1] + '. They will go on their own, nothing to do.',
+    pendingStuckUnknown: n => '⚠️ ' + n + ' delivery(ies) stuck — retrying now. They will go on their own, nothing to do.',
     offlineNote: 'Offline — deliveries are saved and will be sent automatically',
     synced: n => '✅ ' + n + ' delivery(ies) sent',
     formTitle: 'DOCUMENT INFORMATION', lblDocnum: 'Document number (BL / ODL / DT)', lblClient: 'Client code',
@@ -2094,18 +2097,30 @@ function showToast(text) {
 }
 
 async function renderPendingBadge() {
-  let n = 0, bloque = 0;
+  let n = 0, bloque = 0, raison = '';
   try { n = await outboxCount(); } catch (e) {}
   // Combien d'envois ont deja echoue plusieurs fois ? Au-dela de trois, ce
   // n'est plus une coupure passagere : on le dit, avec la raison.
+  //
+  // La raison est lue DANS LA FILE, pas dans une variable de la page.
+  // Ma premiere version affichait `derniereRaison`, remise a zero a chaque
+  // rechargement de l'application : apres un redemarrage, le message disait
+  // « le serveur refuse : — ». Or la cause est enregistree avec chaque
+  // livraison, et elle, elle survit. Autant la lire la.
   try {
     const tout = (await idb('outbox', 'readonly', s => s.getAll())) || [];
-    bloque = tout.filter(x => (x.attempts || 0) >= 3).length;
+    const durs = tout.filter(x => (x.attempts || 0) >= 3);
+    bloque = durs.length;
+    const avecCause = durs.filter(x => x.lastError);
+    if (avecCause.length) raison = String(avecCause[avecCause.length - 1].lastError);
   } catch (e) {}
+  if (!raison) raison = derniereRaison;
   let msg = n > 0 ? (authBlocked ? t('pendingBlocked', n) : t('pending', n))
                   : (!navigator.onLine ? '📶 ' + t('offlineNote') : '');
   if (n > 0 && bloque > 0 && !authBlocked && navigator.onLine) {
-    msg = t('pendingStuck', [n, derniereRaison || '—']);
+    // Sans cause connue, on ne fabrique pas un tiret : on dit qu'on ne sait
+    // pas encore, ce qui est la verite tant qu'aucune tentative n'a eu lieu.
+    msg = raison ? t('pendingStuck', [n, raison]) : t('pendingStuckUnknown', n);
   }
   ['home-status', 'deliver-status'].forEach(id => {
     const box = el(id);
