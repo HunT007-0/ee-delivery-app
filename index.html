@@ -955,6 +955,7 @@ const T = {
     recentTitle: 'ACTIVITÉ RÉCENTE', recentEmpty: 'Aucune livraison aujourd\'hui.',
     pending: n => '⏳ ' + n + ' livraison(s) en attente d\'envoi',
     pendingBlocked: n => '⏳ ' + n + ' livraison(s) en attente — reconnectez-vous avec votre code PIN',
+    pendingStuck: a => '⚠️ ' + a[0] + ' livraison(s) bloquée(s) — le serveur refuse : ' + a[1] + '. Elles repartiront seules, rien à faire.',
     offlineNote: 'Hors ligne — les livraisons sont enregistrées et partiront automatiquement',
     synced: n => '✅ ' + n + ' livraison(s) envoyée(s)',
     formTitle: 'INFORMATIONS DU DOCUMENT', lblDocnum: 'Numéro de document (BL / ODL / DT)', lblClient: 'Code client',
@@ -994,6 +995,7 @@ const T = {
     recentTitle: 'النشاط الأخير', recentEmpty: 'لا توجد توصيلات اليوم.',
     pending: n => '⏳ ' + n + ' توصيل(ات) في انتظار الإرسال',
     pendingBlocked: n => '⏳ ' + n + ' توصيل(ات) في الانتظار — أعد تسجيل الدخول برمزك',
+    pendingStuck: a => '⚠️ ' + a[0] + ' توصيل(ات) متوقفة — الخادم يرفض : ' + a[1] + '. ستُرسل وحدها، لا شيء تفعله.',
     offlineNote: 'غير متصل — التوصيلات محفوظة وسترسل تلقائياً',
     synced: n => '✅ تم إرسال ' + n + ' توصيل(ات)',
     formTitle: 'معلومات الوثيقة', lblDocnum: 'رقم الوثيقة (BL / ODL / DT)', lblClient: 'رمز العميل',
@@ -1033,6 +1035,7 @@ const T = {
     recentTitle: 'RECENT ACTIVITY', recentEmpty: 'No delivery today.',
     pending: n => '⏳ ' + n + ' delivery(ies) waiting to be sent',
     pendingBlocked: n => '⏳ ' + n + ' delivery(ies) waiting — log in again with your PIN',
+    pendingStuck: a => '⚠️ ' + a[0] + ' delivery(ies) stuck — the server refuses: ' + a[1] + '. They will go on their own, nothing to do.',
     offlineNote: 'Offline — deliveries are saved and will be sent automatically',
     synced: n => '✅ ' + n + ' delivery(ies) sent',
     formTitle: 'DOCUMENT INFORMATION', lblDocnum: 'Document number (BL / ODL / DT)', lblClient: 'Client code',
@@ -2009,6 +2012,20 @@ function registerBackgroundSync() {
   } catch (e) {}
 }
 
+/**
+ * Vide la file d'attente.
+ *
+ * Le 5 octobre 2026, les envois de tous les livreurs ont echoue pendant une
+ * journee sans que rien ne le dise : l'ecran affichait « en attente » comme
+ * s'il s'agissait d'une simple coupure reseau, et la raison n'etait nulle
+ * part. On retient donc desormais la CAUSE du dernier echec, et l'ecran la
+ * montre au bout de trois tentatives.
+ *
+ * Aucune action n'est demandee au livreur : la file se vide d'elle-meme des
+ * que le serveur repond. La raison affichee sert a celui qui regarde par
+ * dessus son epaule — et m'evite de deviner.
+ */
+let derniereRaison = '';
 async function syncOutbox() {
   if (isSyncing || !navigator.onLine || !getAuth()) return;
   isSyncing = true;
@@ -2020,13 +2037,26 @@ async function syncOutbox() {
       if (!item) continue;
       if (item.gpsPending && Date.now() - (item.queuedAt || 0) < 45000) continue;
       const body = Object.assign({}, item);
-      delete body.gpsPending; delete body.queuedAt; delete body.attempts; delete body.action; delete body.token;
+      delete body.gpsPending; delete body.queuedAt; delete body.attempts; delete body.action;
+      delete body.token; delete body.lastError;
       let res;
-      try { res = await api('submit', body, 90000); } catch (e) { break; }
-      if (res && res.success) { await outboxDelete(key); sent++; }
-      else if (res && res.authError) { authBlocked = true; break; }
-      else if (res && res.error === 'busy') break;
-      else await patchOutbox(key, { attempts: (item.attempts || 0) + 1 });
+      try {
+        res = await api('submit', body, 90000);
+      } catch (e) {
+        // Le navigateur ne dit pas pourquoi un fetch echoue. Son nom et son
+        // message sont tout ce qu'on a — on les garde plutot que rien.
+        derniereRaison = (e && (e.name || e.message)) ? ((e.name || '') + ' ' + (e.message || '')).trim()
+                                                      : 'réseau';
+        await patchOutbox(key, { attempts: (item.attempts || 0) + 1, lastError: derniereRaison });
+        break;
+      }
+      if (res && res.success) { await outboxDelete(key); sent++; derniereRaison = ''; }
+      else if (res && res.authError) { authBlocked = true; derniereRaison = 'auth'; break; }
+      else if (res && res.error === 'busy') { derniereRaison = 'busy'; break; }
+      else {
+        derniereRaison = (res && res.error) ? String(res.error) : 'refus du serveur';
+        await patchOutbox(key, { attempts: (item.attempts || 0) + 1, lastError: derniereRaison });
+      }
     }
   } catch (e) {
   } finally {
@@ -2034,7 +2064,25 @@ async function syncOutbox() {
     renderPendingBadge();
     if (sent > 0) { showToast(t('synced', sent)); refreshDay(); }
     renderDay();
+    planifierReprise();
   }
+}
+
+/**
+ * Tant qu'il reste quelque chose a envoyer, on reessaie plus souvent que le
+ * battement d'une minute — en espacant progressivement pour ne pas marteler
+ * un serveur qui refuse : 15 s, 30 s, 60 s, puis toutes les 2 minutes.
+ */
+let repriseTimer = null, repriseRang = 0;
+async function planifierReprise() {
+  let n = 0;
+  try { n = await outboxCount(); } catch (e) {}
+  if (repriseTimer) { clearTimeout(repriseTimer); repriseTimer = null; }
+  if (!n) { repriseRang = 0; return; }
+  const paliers = [15000, 30000, 60000, 120000];
+  const d = paliers[Math.min(repriseRang, paliers.length - 1)];
+  repriseRang++;
+  repriseTimer = setTimeout(() => { if (navigator.onLine) syncOutbox(); }, d);
 }
 
 function showToast(text) {
@@ -2046,15 +2094,28 @@ function showToast(text) {
 }
 
 async function renderPendingBadge() {
-  let n = 0;
+  let n = 0, bloque = 0;
   try { n = await outboxCount(); } catch (e) {}
-  const msg = n > 0 ? (authBlocked ? t('pendingBlocked', n) : t('pending', n))
-                    : (!navigator.onLine ? '📶 ' + t('offlineNote') : '');
+  // Combien d'envois ont deja echoue plusieurs fois ? Au-dela de trois, ce
+  // n'est plus une coupure passagere : on le dit, avec la raison.
+  try {
+    const tout = (await idb('outbox', 'readonly', s => s.getAll())) || [];
+    bloque = tout.filter(x => (x.attempts || 0) >= 3).length;
+  } catch (e) {}
+  let msg = n > 0 ? (authBlocked ? t('pendingBlocked', n) : t('pending', n))
+                  : (!navigator.onLine ? '📶 ' + t('offlineNote') : '');
+  if (n > 0 && bloque > 0 && !authBlocked && navigator.onLine) {
+    msg = t('pendingStuck', [n, derniereRaison || '—']);
+  }
   ['home-status', 'deliver-status'].forEach(id => {
     const box = el(id);
     if (!box) return;
     if (msg) { box.style.display = 'flex'; box.className = 'status-line ' + (n > 0 ? 'wait' : 'off'); box.textContent = msg; }
-    else box.style.display = 'none';
+    // On VIDE le texte au lieu de seulement masquer la boite : sinon le
+    // dernier message reste a l'interieur, et le prochain qui regarde le
+    // contenu de l'ecran — moi, un test, un lecteur d'ecran — lit encore
+    // « bloquées » alors que tout est parti.
+    else { box.style.display = 'none'; box.textContent = ''; }
   });
   renderProfilePage();
 }
