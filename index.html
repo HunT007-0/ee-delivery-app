@@ -1616,23 +1616,43 @@ function compressPhoto(file, objectUrl, done) {
   }
 }
 
+/**
+ * Poids VISE pour la photo envoyee, en octets de base64.
+ *
+ * L'envoi durait longtemps parce qu'on envoyait ce que la compression
+ * voulait bien produire : selon la photo, de 200 Ko a plus d'un mega. On vise
+ * desormais un poids, et on redescend par paliers jusqu'a l'atteindre. La
+ * duree d'envoi devient previsible au lieu de dependre du papier photographie.
+ *
+ * 170 Ko : un bon de livraison reste parfaitement lisible, et c'est trois a
+ * six fois moins qu'avant sur les photos lourdes.
+ */
+const PHOTO_CIBLE = 170 * 1024;
+const PHOTO_PALIERS = [[1280, 0.82], [1280, 0.70], [1100, 0.68], [960, 0.64], [820, 0.60]];
+
 function drawAndEncode(source, done, isBitmap) {
   try {
-    let w = source.width, h = source.height;
-    const MAX = 1280;
-    if (w > MAX || h > MAX) {
-      if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-      else { w = Math.round(w * MAX / h); h = MAX; }
+    const sw = source.width, sh = source.height;
+    let retenu = null;
+    for (let i = 0; i < PHOTO_PALIERS.length; i++) {
+      const MAXI = PHOTO_PALIERS[i][0], q = PHOTO_PALIERS[i][1];
+      let w = sw, h = sh;
+      if (w > MAXI || h > MAXI) {
+        if (w > h) { h = Math.round(h * MAXI / w); w = MAXI; }
+        else { w = Math.round(w * MAXI / h); h = MAXI; }
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(source, 0, 0, w, h);
+      const url = c.toDataURL('image/jpeg', q);
+      c.width = 0; c.height = 0;
+      retenu = url;
+      // On garde le PREMIER palier qui tient dans le budget : inutile de
+      // degrader davantage une photo deja legere.
+      if (url.length - (url.indexOf(',') + 1) <= PHOTO_CIBLE) break;
     }
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(source, 0, 0, w, h);
-    if (isBitmap && source.close) { try { source.close(); } catch(e) {} }
-    // Encode — quality 0.85 keeps text readable/zoomable while staying light
-    const compressed = canvas.toDataURL('image/jpeg', 0.85);
-    canvas.width = 0; canvas.height = 0;
-    done(compressed.split(',')[1], compressed);
+    if (isBitmap && source.close) { try { source.close(); } catch (e) {} }
+    done(retenu.split(',')[1], retenu);
   } catch(e) {
     // Canvas failed (out of memory on hot phone) — smaller retry
     try {
